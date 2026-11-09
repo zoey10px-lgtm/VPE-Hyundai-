@@ -44,6 +44,9 @@ class PleosVehicleClient(context: Context) {
     }
 
     private val evSocListener = object : EvBatteryStateOfChargeListener {
+        override fun onFailed(error: Exception) {
+            emitUpdate("EV_SOC_LISTENER_ERROR: " + safeMessage(error), null)
+        }
         override fun onEvBatteryStateOfChargeUpdated(percent: Int?) {
             val value = percent?.toDouble()
             if (value != null && value in 0.0..100.0)
