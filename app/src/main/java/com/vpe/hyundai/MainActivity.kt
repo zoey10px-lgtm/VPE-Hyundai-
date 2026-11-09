@@ -266,35 +266,66 @@ class MainActivity : Activity() {
         page.addView(gap(24))
 
         if (identity != null) {
-            page.addView(label("나의 페르소나", 20f, ink, true))
+            val state = hpe
+            page.addView(label("나의 VPE 인격", 20f, ink, true))
             page.addView(gap(12))
-            val currentSnapshot = observedSnapshot ?: identity!!.lastLearned
-            val currentMood = PersonaEngine.calculate(currentSnapshot)
-            val traits = PersonaEngine.expressedTraits(identity!!.memory, currentSnapshot)
-            fun percent(value: Double) = String.format(java.util.Locale.KOREA, "%.1f%%", value * 100)
             val profile = card()
             profile.addView(row().apply {
-                addView(label(if (demo) "데모 페르소나" else "VPE IDENTITY", 13f, teal, true),
+                addView(label(if (demo) "DEMO / HUMAN PERSONALITY ENGINE" else "HPE / VEHICLE IDENTITY", 13f, teal, true),
                     LinearLayout.LayoutParams(0, -2, 1f))
-                addView(tag(if (demo) "가상 차량" else if (latest.vehicleKey == null) "차량 식별 미확인" else "차량 데이터 기반"))
+                addView(tag(if (state == null) "분석 준비 중" else "HPE 1.0"))
             })
-            profile.addView(gap(16))
-            profile.addView(label("현재 표현 성격 · 실시간 차량 데이터 반영", 12f, secondary))
-            profile.addView(gap(8))
-            profile.addView(label("호기심  ${percent(traits[1])}   ·   친밀감  ${percent(traits[2])}", 17f, ink, true))
-            profile.addView(gap(6))
-            profile.addView(label("활발함 ${percent(traits[0])}  ·  자신감 ${percent(traits[3])}  ·  표현력 ${percent(traits[4])}", 12f, secondary))
-            profile.addView(gap(14))
-            profile.addView(label("지금 기분  ·  ${PersonaEngine.moodLabel(currentMood)}", 16f, ink, true))
-            profile.addView(gap(6))
-            profile.addView(label("에너지 부족 ${percent(currentMood.hunger)}  ·  걱정 ${percent(currentMood.concern)}", 13f, secondary))
-            profile.addView(gap(5))
-            profile.addView(label("“${currentMood.line}”", 13f, ink))
-            profile.addView(gap(10))
-            profile.addView(label("장기 성격 학습 ${identity!!.learningEvents}회 · 기본 성격은 천천히 성장합니다.", 12f, secondary))
-            profile.addView(gap(10))
-            profile.addView(label("보이스 설계  ·  ${identity!!.voiceBlueprint.ageGroup} / ${identity!!.voiceBlueprint.presentation}", 13f, secondary))
-            profile.addView(gap(14))
+            profile.addView(gap(12))
+            if (state != null) {
+                fun percent(v: Double) = String.format(java.util.Locale.KOREA, "%.0f%%", v * 100)
+                val core = state.core
+                val affect = state.affect
+                profile.addView(label("MBTI  " + core.mbti + "   ·   " +
+                    identity!!.voiceBlueprint.presentation + " 보이스", 24f, ink, true))
+                profile.addView(gap(7))
+                profile.addView(label("고유 인격 · 4개 성격 축에서 계산된 초기 유형", 12f, secondary))
+                profile.addView(gap(11))
+                val axisNames = listOf("외향성 E", "직관형 N", "분석형 T", "계획형 J")
+                profile.addView(label(axisNames.mapIndexed { i, name ->
+                    name + " " + percent(core.axes[i])
+                }.joinToString("   ·   "), 12f, secondary))
+                profile.addView(gap(14))
+                profile.addView(label("장기 기질", 15f, ink, true))
+                profile.addView(gap(6))
+                val labels = listOf("활동성", "호기심", "친밀감", "자신감", "신중함", "장난기", "표현력")
+                profile.addView(label(labels.mapIndexed { i, name ->
+                    name + " " + percent(core.traits[i])
+                }.chunked(4).joinToString("\n") { it.joinToString("   ·   ") }, 13f, secondary))
+                profile.addView(gap(14))
+                profile.addView(label("지금의 감정 · " + state.expression.headline, 16f, ink, true))
+                profile.addView(gap(6))
+                val moodData = listOf(
+                    "배고픔" to affect.hunger,
+                    "더움" to affect.heat,
+                    "추움" to affect.cold,
+                    "긴장" to affect.tension,
+                    "안도" to affect.relief,
+                    "편안함" to affect.comfort
+                )
+                profile.addView(label(moodData.chunked(3).joinToString("\n") { row ->
+                    row.joinToString("   ·   ") { (name, value) ->
+                        name + " " + if ((name == "더움" || name == "추움" || name == "편안함") &&
+                            latest.cabinTemperatureC == null && !demo) "미측정" else percent(value)
+                    }
+                }, 13f, secondary))
+                profile.addView(gap(11))
+                profile.addView(label("“" + state.expression.utterance + "”", 15f, ink, true))
+                profile.addView(gap(9))
+                profile.addView(label("함께 주행한 관측 거리 " +
+                    String.format(java.util.Locale.KOREA, "%,.0f km",state.memory.sharedKm) +
+                    "   ·   중요 경험 " + state.memory.meaningfulEvents + "회", 12f, secondary))
+                profile.addView(gap(6))
+                profile.addView(label("성격 신뢰도 " + percent(core.confidence) +
+                    " · 데이터 부족 영역은 차량별 고유 시드 사용", 12f, secondary))
+            } else {
+                profile.addView(label("차량 인격 분석을 준비 중이에요.", 14f, secondary))
+            }
+            profile.addView(gap(15))
             profile.addView(button("VPE와 대화하기") { render("chat") })
             page.addView(profile)
             page.addView(gap(18))
