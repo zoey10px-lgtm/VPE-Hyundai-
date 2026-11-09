@@ -110,6 +110,19 @@ class MainActivity : Activity() {
                 pleos.readDriverDoor { message -> runOnUiThread { status.text = message } }
             }
         })
+        root.addView(Button(this).apply {
+            text = "Pleos SDK 실제 차량 데이터 조회"
+            setOnClickListener {
+                status.text = "SDK 차량 데이터 조회 중…"
+                val lines = mutableListOf<String>()
+                pleos.inspectPersonaSources { message ->
+                    runOnUiThread {
+                        lines.add(message)
+                        status.text = lines.takeLast(15).joinToString("\\n")
+                    }
+                }
+            }
+        })
         setContentView(scroll)
         status.text = if (identity == null) "최초 Identity 생성 대기 중" else "저장된 VPE Identity 복원 완료"
         render()
