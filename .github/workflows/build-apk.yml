@@ -25,6 +25,24 @@ jobs:
           gradle-version: '8.9'
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug --stacktrace
+      - name: Audit Pleos SDK 2.3.2 method signatures
+        if: always()
+        shell: bash
+        run: |
+          echo "=== Pleos SDK method signatures ==="
+          SDK_FILE=$(find "$HOME/.gradle/caches/modules-2/files-2.1/ai.pleos.playground/Vehicle/2.3.2" -name '*.aar' -o -name '*.jar' | head -1)
+          if [ -z "$SDK_FILE" ]; then echo "SDK archive not found"; exit 0; fi
+          echo "Archive: $SDK_FILE"
+          mkdir -p /tmp/vpe-pleos
+          if [[ "$SDK_FILE" == *.aar ]]; then
+            unzip -p "$SDK_FILE" classes.jar > /tmp/vpe-pleos/classes.jar
+          else
+            cp "$SDK_FILE" /tmp/vpe-pleos/classes.jar
+          fi
+          for api in Odometer Fuel CarInfo EvBattery; do
+            echo "== $api =="
+            javap -classpath /tmp/vpe-pleos/classes.jar -p "ai.pleos.playground.vehicle.api.$api" | grep -E 'getCurrentDistanceDriven|getFuelPercent|getVINInfo|getCRNInfo|getEvBatteryLevel|checkCurrentDistanceDrivenCapabilities|checkFuelPercentCapabilities' || true
+          done
       - uses: actions/upload-artifact@v4
         if: success()
         with:
