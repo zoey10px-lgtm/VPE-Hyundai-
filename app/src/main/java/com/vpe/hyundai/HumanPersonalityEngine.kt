@@ -234,8 +234,23 @@ object HumanPersonalityEngine {
 
     fun observe(s: HpeSignals, previous: HpeState? = null): HpeState {
         val old = previous?.takeIf { it.key == s.vehicleKey }
-        val core = old?.core ?: makeCore(s)
         val memory = learn(old?.memory, s)
+        val initialCore = old?.core ?: makeCore(s)
+        // McAdams-inspired character adaptation: only a meaningful experience
+        // permits a tiny update. Sensor polling and momentary hunger never do.
+        val core = if (old != null &&
+            memory.meaningfulEvents > old.memory.meaningfulEvents) {
+            val candidate = makeCore(s)
+            HpeCore(
+                axes = initialCore.axes.zip(candidate.axes) { stable, observed ->
+                    clamp(.97 * stable + .03 * observed)
+                },
+                traits = initialCore.traits.zip(candidate.traits) { stable, observed ->
+                    clamp(.97 * stable + .03 * observed)
+                },
+                confidence = max(initialCore.confidence, candidate.confidence)
+            )
+        } else initialCore
         val a = appraise(s)
         val mood = affect(a, s)
         val style = express(core, mood, s)
