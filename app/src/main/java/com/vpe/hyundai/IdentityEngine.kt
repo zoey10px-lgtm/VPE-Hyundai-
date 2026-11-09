@@ -20,7 +20,9 @@ data class VpeIdentity(
     val initial: VehicleSnapshot,
     val baseline: Persona,
     val voiceBlueprint: VoiceBlueprint,
-    val memory: PersonalityMemory
+    val memory: PersonalityMemory,
+    val lastLearned: VehicleSnapshot = initial,
+    val learningEvents: Int = 0
 )
 object IdentityEngine {
     const val VERSION = 1
@@ -41,9 +43,23 @@ object IdentityEngine {
         return VpeIdentity(key, VERSION, v, p, voice,
             PersonalityMemory(listOf(p.energy, p.curiosity, p.warmth, p.confidence, p.expressiveness)))
     }
-    /** Only long-term traits grow; the initial voice identity is never regenerated on updates. */
+    /** Learn once per meaningful accumulated driving experience, not per sensor poll. */
     fun evolve(identity: VpeIdentity, latest: VehicleSnapshot): VpeIdentity {
+        val prev = identity.lastLearned
+        val distanceGain = latest.odometerKm - prev.odometerKm
+        val travelChange = kotlin.math.abs(latest.longTripRatio - prev.longTripRatio)
+        val exploreChange = kotlin.math.abs(latest.explorationRatio - prev.explorationRatio)
+        val careChange = kotlin.math.abs(latest.maintenanceScore - prev.maintenanceScore)
+        val ageChange = latest.ageYears - prev.ageYears
+        // Fuel changes only affect short-term mood. No experience is awarded for repeated reads.
+        val meaningful = distanceGain >= 100.0 || travelChange >= .05 ||
+            exploreChange >= .05 || careChange >= 10.0 || ageChange >= 1.0
+        if (!meaningful) return identity
         val next = PersonaEngine.calculate(latest)
-        return identity.copy(memory = identity.memory.update(next))
+        return identity.copy(
+            memory = identity.memory.update(next),
+            lastLearned = latest,
+            learningEvents = identity.learningEvents + 1
+        )
     }
 }
