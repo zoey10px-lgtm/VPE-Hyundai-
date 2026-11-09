@@ -32,3 +32,13 @@ Native Android (Kotlin) prototype for a vehicle personality AI.
 - Tap **Pleos SDK 연결 및 운전석 도어 조회** on a compatible Pleos emulator to test connectivity.
 - **Not yet connected to VPE persona inputs:** odometer, fuel, vehicle info, location, and maintenance history still use manual sliders. The door read is an SDK connectivity smoke test only.
 - SDK artifact resolution, compilation, device connection and API responses have **not been verified** in this environment. An APK has not been built.
+
+## v0.3: Voice-free identity genesis prototype
+- **First connection:** user supplies vehicle data in six demo sliders and taps `VPE 최초 연동 · Identity 생성`.
+- **Deterministic weighted genesis:** `IdentityEngine.generate` calculates baseline personality and a voice **blueprint** (gender presentation, perceived age, pitch, resonance, softness, rate), without synthesizing audio.
+- **Local persistence:** `IdentityStore` stores baseline vehicle snapshot, version, voice blueprint, and personality memory; reopening the app restores the identity.
+- **Long-term evolution:** `운행 경험 반영` applies an EMA update to five long-term traits. Short-term hunger/concern are recomputed from current demo sliders. The first voice blueprint stays stable.
+- **Reset:** `테스트 Identity 초기화` allows testing a fresh genesis.
+- **SDK:** existing Pleos driver-door read remains a separate connection smoke test. Actual SDK data mapping to identity genesis is **not implemented**. No real vehicle identifier is available; demo key is `demo-vehicle`.
+- **No voice audio:** no STT, TTS or audio playback in v0.3.
+- **Verification:** source files were committed to GitHub; compilation, APK creation, runtime behavior, and actual SDK access are not yet verified.
