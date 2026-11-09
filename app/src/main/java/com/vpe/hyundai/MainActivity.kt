@@ -253,6 +253,7 @@ class MainActivity : Activity() {
     }
 
     private fun connect() {
+        diagnostics.clear()
         busy = true
         val currentRequest = ++requestId
         mainHandler.postDelayed({
