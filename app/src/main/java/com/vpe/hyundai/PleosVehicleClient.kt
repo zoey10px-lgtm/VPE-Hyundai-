@@ -7,8 +7,6 @@ import ai.pleos.playground.vehicle.listener.DistanceDrivenListener
 import ai.pleos.playground.vehicle.listener.FuelPercentListener
 import android.util.Log
 import java.security.MessageDigest
-import ai.pleos.playground.vehicle.listener.DistanceDrivenListener
-import ai.pleos.playground.vehicle.listener.FuelPercentListener
 import ai.pleos.playground.vehicle.listener.EvBatteryStateOfChargeListener
 
 /** Typed, read-only Pleos Vehicle SDK 2.3.2 integration, confirmed from actual AAR. */
@@ -16,12 +14,9 @@ class PleosVehicleClient(context: Context) {
     private val appContext = context.applicationContext
     private val vehicle = Vehicle(appContext)
     private var initialized = false
-    private var distanceListener: DistanceDrivenListener? = null
-    private var fuelListener: FuelPercentListener? = null
-    private var evChargeListener: EvBatteryStateOfChargeListener? = null
-    @Volatile private var monitoring = false
     @Volatile private var distanceRegistered = false
     @Volatile private var fuelRegistered = false
+    @Volatile private var evSocRegistered = false
     @Volatile private var listenerReporter: ((String, VehicleReadings?) -> Unit)? = null
 
     private val distanceListener = object : DistanceDrivenListener {
@@ -39,6 +34,14 @@ class PleosVehicleClient(context: Context) {
             if (percent != null && percent in 0.0..100.0) {
                 emitUpdate("FUEL_UPDATE: 연료 비율 변경", VehicleReadings(fuelPercent = percent))
             }
+        }
+    }
+
+    private val evSocListener = object : EvBatteryStateOfChargeListener {
+        override fun onEvBatteryStateOfChargeUpdated(percent: Int?) {
+            val value = percent?.toDouble()
+            if (value != null && value in 0.0..100.0)
+                emitUpdate("EV_SOC_UPDATE: 실제 배터리 잔량 변경", VehicleReadings(evBatteryLevel = value))
         }
     }
 
@@ -151,19 +154,39 @@ class PleosVehicleClient(context: Context) {
         }
 
         try {
-            vehicle.getEvBattery().getEvBatteryLevel(
-                onComplete = { level ->
-                    val value = level?.toDouble()
-                    if (value != null && value > 1.0 && value <= 100.0) {
-                        report("EV_OK: 배터리 잔량 수신", VehicleReadings(evBatteryLevel = value))
+            vehicle.getEvBattery().checkEvBatteryStateOfChargeCapabilities(
+                onComplete = { capability ->
+                    if (capability.accessType == AccessType.NONE) {
+                        report("EV_UNSUPPORTED: 배터리 충전율 읽기 미지원", null)
                     } else {
-                        report("EV_INFO: 배터리 원시값 ${value ?: "없음"} (단위 검증 필요)", null)
+                        if (!evSocRegistered) {
+                            try {
+                                vehicle.getEvBattery().registerEvBatteryStateOfCharge(evSocListener)
+                                evSocRegistered = true
+                                report("EV_LISTENER_READY: 실제 충전율 변경 구독 등록", null)
+                            } catch (error: Exception) {
+                                report("EV_LISTENER_ERROR: " + safeMessage(error), null)
+                            }
+                        }
+                        try {
+                            vehicle.getEvBattery().getEvBatteryStateOfCharge(
+                                onComplete = { percent ->
+                                    val value = percent?.toDouble()
+                                    if (value != null && value in 0.0..100.0)
+                                        report("EV_OK: 배터리 충전율 수신", VehicleReadings(evBatteryLevel = value))
+                                    else report("EV_EMPTY: 배터리 충전율 값 없음", null)
+                                },
+                                onFailed = { error -> report("EV_ERROR: " + safeMessage(error), null) }
+                            )
+                        } catch (error: Exception) {
+                            report("EV_ERROR: " + safeMessage(error), null)
+                        }
                     }
                 },
-                onFailed = { error -> report("EV_ERROR: ${safeMessage(error)}", null) }
+                onFailed = { error -> report("EV_CAP_ERROR: " + safeMessage(error), null) }
             )
         } catch (error: Exception) {
-            report("EV_ERROR: ${safeMessage(error)}", null)
+            report("EV_CAP_ERROR: " + safeMessage(error), null)
         }
 
         try {
@@ -180,94 +203,6 @@ class PleosVehicleClient(context: Context) {
         } catch (error: Exception) {
             report("VIN_ERROR: ${safeMessage(error)}", null)
         }
-    }
-
-    /** Subscribes to Vehicle Service updates using actual SDK 2.3.2 listener types.
-     * Updates are emitted only from observed SDK values; no timer-created values.
-     */
-    @Synchronized fun startLiveUpdates(onReading: (String, VehicleReadings?) -> Unit) {
-        if (monitoring) return
-        val environment = VehicleEnvironmentInspector.inspect(appContext)
-        if (!environment.automotive) {
-            onReading("LIVE_UNAVAILABLE: Pleos Automotive 시스템이 아닙니다.", null)
-            return
-        }
-        try { ready() } catch (error: Exception) {
-            onReading("LIVE_SERVICE_ERROR: " + safeMessage(error), null)
-            return
-        }
-        monitoring = true
-        val odometer = object : DistanceDrivenListener {
-            override fun onDistanceDrivenUpdated(distance: Float?) {
-                val km = distance?.toDouble()
-                if (km != null && km.isFinite() && km >= 0.0)
-                    onReading("ODO_UPDATE: 실제 주행거리 변경", VehicleReadings(odometerKm = km))
-            }
-            override fun onFailed(error: Exception) {
-                onReading("ODO_LISTENER_ERROR: " + safeMessage(error), null)
-            }
-        }
-        val fuel = object : FuelPercentListener {
-            override fun onFuelPercentUpdated(percent: Int?) {
-                val value = percent?.toDouble()
-                if (value != null && value in 0.0..100.0)
-                    onReading("FUEL_UPDATE: 실제 연료량 변경", VehicleReadings(fuelPercent = value))
-            }
-            override fun onFailed(error: Exception) {
-                onReading("FUEL_LISTENER_ERROR: " + safeMessage(error), null)
-            }
-        }
-        val soc = object : EvBatteryStateOfChargeListener {
-            override fun onEvBatteryStateOfChargeUpdated(percent: Int?) {
-                val value = percent?.toDouble()
-                if (value != null && value in 0.0..100.0)
-                    onReading("EV_SOC_UPDATE: 실제 배터리 잔량 변경", VehicleReadings(evBatteryLevel = value))
-            }
-            override fun onFailed(error: Exception) {
-                onReading("EV_SOC_LISTENER_ERROR: " + safeMessage(error), null)
-            }
-        }
-        try {
-            vehicle.getOdometer().registerDistanceDriven(odometer)
-            distanceListener = odometer
-            onReading("ODO_LISTENING: 누적 주행거리 변경 구독", null)
-        } catch (error: Exception) {
-            onReading("ODO_LISTENER_ERROR: " + safeMessage(error), null)
-        }
-        try {
-            vehicle.getFuel().registerFuelPercent(fuel)
-            fuelListener = fuel
-            onReading("FUEL_LISTENING: 연료량 변경 구독", null)
-        } catch (error: Exception) {
-            onReading("FUEL_LISTENER_ERROR: " + safeMessage(error), null)
-        }
-        try {
-            vehicle.getEvBattery().registerEvBatteryStateOfCharge(soc)
-            evChargeListener = soc
-            onReading("EV_LISTENING: 배터리 잔량 변경 구독", null)
-        } catch (error: Exception) {
-            onReading("EV_SOC_LISTENER_ERROR: " + safeMessage(error), null)
-        }
-        if (distanceListener == null && fuelListener == null && evChargeListener == null) {
-            monitoring = false
-            onReading("LIVE_UNAVAILABLE: 이 차량에서 해당 변경 알림 구독 실패", null)
-        }
-    }
-
-    @Synchronized fun stopLiveUpdates() {
-        monitoring = false
-        distanceListener?.let { listener ->
-            runCatching { vehicle.getOdometer().unregisterDistanceDriven(listener) }
-        }
-        fuelListener?.let { listener ->
-            runCatching { vehicle.getFuel().unregisterFuelPercent(listener) }
-        }
-        evChargeListener?.let { listener ->
-            runCatching { vehicle.getEvBattery().unregisterEvBatteryStateOfCharge(listener) }
-        }
-        distanceListener = null
-        fuelListener = null
-        evChargeListener = null
     }
 
     private fun fingerprint(value: String): String {
@@ -296,6 +231,10 @@ class PleosVehicleClient(context: Context) {
             if (fuelRegistered) {
                 runCatching { vehicle.getFuel().unregisterFuelPercent(fuelListener) }
                 fuelRegistered = false
+            }
+            if (evSocRegistered) {
+                runCatching { vehicle.getEvBattery().unregisterEvBatteryStateOfCharge(evSocListener) }
+                evSocRegistered = false
             }
             vehicle.release()
             initialized = false
