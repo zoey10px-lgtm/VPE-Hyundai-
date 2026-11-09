@@ -264,7 +264,10 @@ class MainActivity : Activity() {
         if (identity != null) {
             page.addView(label("나의 페르소나", 20f, ink, true))
             page.addView(gap(12))
-            val traits = identity!!.memory.traits
+            val currentSnapshot = observedSnapshot ?: identity!!.lastLearned
+            val currentMood = PersonaEngine.calculate(currentSnapshot)
+            val traits = PersonaEngine.expressedTraits(identity!!.memory, currentSnapshot)
+            fun percent(value: Double) = String.format(java.util.Locale.KOREA, "%.1f%%", value * 100)
             val profile = card()
             profile.addView(row().apply {
                 addView(label(if (demo) "데모 페르소나" else "VPE IDENTITY", 13f, teal, true),
@@ -272,8 +275,20 @@ class MainActivity : Activity() {
                 addView(tag(if (demo) "가상 차량" else if (latest.vehicleKey == null) "차량 식별 미확인" else "차량 데이터 기반"))
             })
             profile.addView(gap(16))
-            profile.addView(label("호기심  ${(traits[1] * 100).toInt()}%   ·   친밀감  ${(traits[2] * 100).toInt()}%", 17f, ink, true))
-            profile.addView(gap(9))
+            profile.addView(label("현재 표현 성격 · 실시간 차량 데이터 반영", 12f, secondary))
+            profile.addView(gap(8))
+            profile.addView(label("호기심  ${percent(traits[1])}   ·   친밀감  ${percent(traits[2])}", 17f, ink, true))
+            profile.addView(gap(6))
+            profile.addView(label("활발함 ${percent(traits[0])}  ·  자신감 ${percent(traits[3])}  ·  표현력 ${percent(traits[4])}", 12f, secondary))
+            profile.addView(gap(14))
+            profile.addView(label("지금 기분  ·  ${PersonaEngine.moodLabel(currentMood)}", 16f, ink, true))
+            profile.addView(gap(6))
+            profile.addView(label("에너지 부족 ${percent(currentMood.hunger)}  ·  걱정 ${percent(currentMood.concern)}", 13f, secondary))
+            profile.addView(gap(5))
+            profile.addView(label("“${currentMood.line}”", 13f, ink))
+            profile.addView(gap(10))
+            profile.addView(label("장기 성격 학습 ${identity!!.learningEvents}회 · 기본 성격은 천천히 성장합니다.", 12f, secondary))
+            profile.addView(gap(10))
             profile.addView(label("보이스 설계  ·  ${identity!!.voiceBlueprint.ageGroup} / ${identity!!.voiceBlueprint.presentation}", 13f, secondary))
             profile.addView(gap(14))
             profile.addView(button("VPE와 대화하기") { render("chat") })
@@ -399,8 +414,12 @@ class MainActivity : Activity() {
             listOf("거리", "주행", "얼마나").any { it in message } ->
                 distance?.let { "확인된 누적 주행거리는 ${"%,.0f".format(it)}km야." }
                     ?: "주행거리 데이터를 아직 확인하지 못했어."
-            listOf("성격", "누구", "어떤 차").any { it in message } ->
-                "난 호기심 ${(id.memory.traits[1] * 100).toInt()}%, 친밀감 ${(id.memory.traits[2] * 100).toInt()}%인 VPE야. 앞으로 함께 달리며 변할 거야!"
+            listOf("성격", "누구", "어떤 차").any { it in message } -> {
+                val traits = PersonaEngine.expressedTraits(id.memory, current)
+                "지금의 나는 호기심 ${"%.1f".format(traits[1] * 100)}%, 친밀감 ${"%.1f".format(traits[2] * 100)}%야. ${PersonaEngine.moodLabel(persona)}. ${persona.line}"
+            }
+            listOf("기분", "컨디션", "배고", "걱정", "괜찮").any { it in message } ->
+                "지금 기분은 ${PersonaEngine.moodLabel(persona)}. 에너지 부족 ${(persona.hunger * 100).toInt()}%, 걱정 ${(persona.concern * 100).toInt()}%야. ${persona.line}"
             listOf("안녕", "반가워").any { it in message } ->
                 "안녕! 반가워. ${persona.line}"
             else -> persona.line
