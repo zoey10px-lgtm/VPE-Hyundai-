@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -24,6 +26,8 @@ class MainActivity : Activity() {
     private var status = "연결 대기"
     private var description = "Pleos 차량 환경에서 연결을 시작하세요."
     private var busy = false
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var requestId = 0
     private val diagnostics = mutableListOf<String>()
     private val conversation = mutableListOf<Pair<String, String>>()
     private var waveAnimator: ValueAnimator? = null
@@ -250,12 +254,23 @@ class MainActivity : Activity() {
 
     private fun connect() {
         busy = true
+        val currentRequest = ++requestId
+        mainHandler.postDelayed({
+            if (busy && requestId == currentRequest) {
+                busy = false
+                status = "연결 응답 시간 초과"
+                description = "차량 서비스에서 응답하지 않았어요. 진단 탭에서 확인해 주세요."
+                diagnostics.add("SDK 조회 시간 초과: 12초 동안 필수 차량 데이터 미수신")
+                show("home")
+            }
+        }, 12000L)
         status = "차량 데이터 확인 중"
         description = "Pleos SDK 응답을 기다리고 있어요."
         show("home")
         var accepted = false
         sdk.readVehicleData { message, partial ->
             runOnUiThread {
+                if (requestId != currentRequest) return@runOnUiThread
                 diagnostics.add(message)
                 if (partial != null) {
                     readings = readings.copy(
@@ -308,6 +323,8 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         waveAnimator?.cancel()
+        requestId++
+        mainHandler.removeCallbacksAndMessages(null)
         sdk.release()
         super.onDestroy()
     }
