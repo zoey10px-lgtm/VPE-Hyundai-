@@ -39,7 +39,7 @@ jobs:
           else
             cp "$SDK_FILE" /tmp/vpe-pleos/classes.jar
           fi
-          for api in Odometer Fuel CarInfo EvBattery; do
+          for api in Odometer Fuel CarInfo EvBattery HVAC DrivingMode Door Safety Seat Window Light; do
             echo "== $api =="
             javap -classpath /tmp/vpe-pleos/classes.jar -p "ai.pleos.playground.vehicle.api.$api" | grep -E 'get|register|unregister|check' || true
           done
