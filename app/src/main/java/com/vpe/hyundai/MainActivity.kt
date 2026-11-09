@@ -115,6 +115,24 @@ class MainActivity : Activity() {
         render()
     }
     /** Called whenever an input changes; same method can receive mapped SDK snapshots later. */
+    /** Entry point for verified SDK values. Unknown values retain their previous snapshot.
+     * Call this only after a real successful SDK property read.
+     */
+    private fun applySdkReadings(readings: VehicleReadings) {
+        val current = identity ?: return
+        val merged = VehicleDataMapper.merge(
+            current.lastLearned, readings, java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+        )
+        val updated = IdentityEngine.evolve(current, merged)
+        if (updated !== current) {
+            identity = updated
+            store.save(updated)
+            status.text = "SDK 데이터 기반 성격 학습 완료"
+        } else {
+            status.text = "SDK 데이터 확인 · 장기 학습 기준 미충족"
+        }
+        render()
+    }
     private fun observeVehicleData() {
         val current = identity ?: return
         val updated = IdentityEngine.evolve(current, snapshot())
