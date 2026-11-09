@@ -25,13 +25,13 @@ data class VpeIdentity(
     val learningEvents: Int = 0
 )
 object IdentityEngine {
-    const val VERSION = 1
+    const val VERSION = 2
     fun generate(key: String, v: VehicleSnapshot): VpeIdentity {
         require(key.isNotBlank())
         val p = PersonaEngine.calculate(v)
         val age = (v.ageYears / 20.0).coerceIn(0.0, 1.0)
         val experience = (v.odometerKm / 250000.0).coerceIn(0.0, 1.0)
-        val gender = (.5 + .25 * p.expressiveness - .20 * p.confidence + .10 * p.warmth).coerceIn(0.0, 1.0)
+        val gender = (.5 + .32 * (p.expressiveness - .5) - .28 * (p.confidence - .5) + .16 * (p.warmth - .5)).coerceIn(0.0, 1.0)
         val voice = VoiceBlueprint(
             genderExpression = gender,
             perceivedAge = (20 + 15 * age + 12 * experience).roundToInt().coerceIn(20, 50),
