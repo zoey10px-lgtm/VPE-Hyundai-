@@ -21,7 +21,8 @@ class IdentityStore(context: Context) {
             .put("memory", JSONArray(identity.memory.traits))
         prefs.edit().putString("identity",obj.toString()).apply()
     }
-    fun load(): VpeIdentity? = try {
+    fun load(): VpeIdentity? {
+        return try {
         val raw = prefs.getString("identity",null) ?: return null
         val o = JSONObject(raw)
         if (o.getInt("version") != IdentityEngine.VERSION) return null
@@ -35,5 +36,6 @@ class IdentityStore(context: Context) {
         val memory = PersonalityMemory((0 until arr.length()).map { arr.getDouble(it) })
         VpeIdentity(o.getString("key"),o.getInt("version"),snap,PersonaEngine.calculate(snap),voice,memory)
     } catch (_: Exception) { null }
+    }
     fun clear() { prefs.edit().remove("identity").apply() }
 }
