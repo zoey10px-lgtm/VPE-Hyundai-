@@ -522,8 +522,16 @@ class MainActivity : Activity() {
                         if (connecting && latest.odometerKm != null &&
                             latest.energyPercent() != null && latest.vehicleKey != null) {
                             finishConnection(serial, timeout = false)
-                        } else if (!connecting && identity != null && !demo) {
-                            applyLiveSdkReadings()
+                        } else if (!connecting && !demo) {
+                            if (latest.odometerKm != null && latest.vehicleKey != null &&
+                                identity?.vehicleKey != latest.vehicleKey) {
+                                if (buildIdentityFromSdkReadings()) {
+                                    connectionNote = "차량 식별과 주행거리 수신 완료 · VPE Identity 생성"
+                                    render("home")
+                                }
+                            } else if (identity != null) {
+                                applyLiveSdkReadings()
+                            }
                         }
                     }
                     if (connecting && log.startsWith("SERVICE_ERROR")) {
@@ -537,37 +545,40 @@ class MainActivity : Activity() {
     private fun finishConnection(serial: Int, timeout: Boolean) {
         if (serial != requestSerial || !connecting) return
         connecting = false
-        val km = latest.odometerKm
-        if (km != null && km.isFinite() && km >= 0) {
-            val year = Calendar.getInstance().get(Calendar.YEAR)
-            // Missing values are explicitly neutral algorithm inputs, not claimed SDK data.
-            val neutral = VehicleSnapshot(10.0, km, latest.energyPercent() ?: 50.0,
-                50.0, 0.5, 0.5)
-            val existing = identity?.takeIf {
-                it.vehicleKey == (latest.vehicleKey ?: "local-device-vpe") && !demo
-            }
-            val snap = if (existing == null) neutral else VehicleDataMapper.merge(
-                existing.lastLearned, latest, year
-            )
-            identity = if (existing == null) IdentityEngine.generate(
-                latest.vehicleKey ?: "local-device-vpe", snap
-            ) else IdentityEngine.evolve(existing, snap)
-            observedSnapshot = snap
-            identity?.let(store::save)
-            connectionNote = when {
-                latest.vehicleKey == null -> "주행거리를 확인했어요. 차량 식별자는 미확인이라 로컬 임시 프로필로 저장했어요."
-                latest.energyPercent() == null -> "주행거리 수신 완료 · 에너지 데이터는 아직 미확인"
-                else -> "Pleos 차량 데이터를 반영했어요."
-            }
+        if (buildIdentityFromSdkReadings()) {
+            connectionNote = if (latest.energyPercent() == null)
+                "차량 주행거리와 식별자 확인 완료 · 에너지 데이터는 미수신"
+            else "Pleos Vehicle Service 데이터 수신 및 VPE Identity 생성 완료"
         } else {
             connectionNote = when {
+                latest.odometerKm != null && latest.vehicleKey == null ->
+                    "주행거리는 수신했어요. CAR_INFO 차량 식별자가 미수신이라 고유 페르소나 생성을 보류했어요."
                 diagnosticLogs.any { it.contains("PERMISSION_DENIED") } ->
-                    "차량 접근 권한이 거부됐어요. Pleos 환경과 권한을 확인해 주세요."
-                timeout -> "연결 응답이 지연되고 있어요. 진단 탭을 확인해 주세요."
-                else -> "차량 데이터를 확인하지 못했어요. 진단 탭에서 상세 정보를 볼 수 있어요."
+                    "Pleos 차량 데이터 권한 거부. 차량 시스템의 앱 권한을 확인하세요."
+                timeout -> "차량 데이터 응답 시간 초과 · 진단에서 도메인별 결과를 확인하세요."
+                else -> "차량 SDK 응답 미수신 · 진단 화면에서 원인을 확인하세요."
             }
         }
         render("home")
+    }
+
+    /** Create a persistent vehicle persona only from observed Odometer + real vehicle ID. */
+    private fun buildIdentityFromSdkReadings(): Boolean {
+        val km = latest.odometerKm ?: return false
+        val key = latest.vehicleKey ?: return false
+        if (!km.isFinite() || km < 0.0) return false
+        val year = Calendar.getInstance().get(Calendar.YEAR)
+        val existing = identity?.takeIf { it.vehicleKey == key && !demo }
+        // Neutral attributes are explicitly unobserved, not spoofed SDK measurements.
+        val seed = VehicleSnapshot(10.0, km, latest.energyPercent() ?: 50.0,
+            50.0, 0.5, 0.5)
+        val next = if (existing == null) seed else
+            VehicleDataMapper.merge(observedSnapshot ?: existing.lastLearned, latest, year)
+        observedSnapshot = next
+        identity = if (existing == null) IdentityEngine.generate(key, next)
+            else IdentityEngine.evolve(existing, next)
+        identity?.let(store::save)
+        return true
     }
 
     /**
@@ -577,7 +588,8 @@ class MainActivity : Activity() {
      */
     private fun applyLiveSdkReadings() {
         val previous = identity ?: return
-        if (latest.odometerKm == null || demo) return
+        if (latest.odometerKm == null || demo ||
+            latest.vehicleKey != previous.vehicleKey) return
         val base = observedSnapshot ?: previous.lastLearned
         val next = VehicleDataMapper.merge(
             base, latest, Calendar.getInstance().get(Calendar.YEAR)
