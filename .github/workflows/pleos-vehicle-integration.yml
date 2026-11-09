@@ -54,7 +54,7 @@ jobs:
             echo "::error::Pleos Android API 34 x86 system image not publicly discoverable via official repository."
             exit 1
           fi
-          echo "PLEOS_PACKAGE=$PACKAGE" >> "$GITHUB_ENV"
+          echo "PLEOS_PACKAGE=system-images;android-34;android-automotive;x86_64" >> "$GITHUB_ENV"
           # GitHub command-line sdkmanager does not index Android Studio's custom
           # update site. Install the same official, SHA-1 verified system-image ZIP.
           sdkmanager --install "emulator" "platform-tools" "platforms;android-34"
@@ -76,11 +76,17 @@ jobs:
           curl --fail --location --retry 3 --retry-delay 5 --connect-timeout 30 \
             --max-time 1400 --progress-bar "$IMAGE_URL" -o /tmp/pleos-official-image.zip
           echo "$IMAGE_SHA1  /tmp/pleos-official-image.zip" | sha1sum -c -
-          mkdir -p "$ANDROID_HOME/system-images/android-34/pleos_car_emulator/x86_64"
-          unzip -q /tmp/pleos-official-image.zip \
-            -d "$ANDROID_HOME/system-images/android-34/pleos_car_emulator/x86_64"
+          IMAGE_DIR="$ANDROID_HOME/system-images/android-34/android-automotive/x86_64"
+          mkdir -p "$IMAGE_DIR"
+          unzip -q /tmp/pleos-official-image.zip -d "$IMAGE_DIR"
           rm /tmp/pleos-official-image.zip
-          IMAGE_DIR="$ANDROID_HOME/system-images/android-34/pleos_car_emulator/x86_64"
+          # The published Pleos archive wraps system.img in crp_avd_out_x86_64.
+          # Android tools require system image files directly under the ABI folder.
+          if [ -d "$IMAGE_DIR/crp_avd_out_x86_64" ]; then
+            mv "$IMAGE_DIR/crp_avd_out_x86_64/"* "$IMAGE_DIR/"
+            rmdir "$IMAGE_DIR/crp_avd_out_x86_64"
+          fi
+          test -f "$IMAGE_DIR/system.img" || { echo "::error::Missing Pleos system.img"; ls -lh "$IMAGE_DIR"; exit 1; }
           cat > "$IMAGE_DIR/source.properties" <<'EOF'
           Pkg.Desc=Pleos Connect v2.1.0 APIs x86_64
           Pkg.Revision=2
@@ -93,7 +99,7 @@ jobs:
           EOF
           echo "Installed image files:"
           ls -lh "$IMAGE_DIR" | head -25
-          avdmanager create avd --force -n "VPE_Pleos_Connect" -k "$PACKAGE" \
+          avdmanager create avd --force -n "VPE_Pleos_Connect" -k "system-images;android-34;android-automotive;x86_64" \
             -d "automotive_1024p_landscape" <<<'no'
       - name: Boot Pleos Vehicle Service emulator and exercise SDK
         shell: bash
