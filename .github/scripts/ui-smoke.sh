@@ -53,7 +53,10 @@ if cmp -s /tmp/vpe_frame_1.png /tmp/vpe_frame_2.png; then
 fi
 echo "PASS: Animated home changed pixels"
 
-tap_label "시연용 데모 체험"
+grep -q '스마트폰에서 VPE 데모 시작' /tmp/vpe_ui.xml
+grep -q 'Pleos 차량 연동 안내' /tmp/vpe_ui.xml
+echo "PASS: Regular Android phone detected without claiming vehicle connection"
+tap_label "스마트폰에서 VPE 데모 시작"
 dump_ui
 grep -q '데모 페르소나가 준비됐어요' /tmp/vpe_ui.xml
 echo "PASS: Demo mode produced visible persona"
@@ -71,6 +74,9 @@ adb exec-out screencap -p > /tmp/vpe_chat.png
 tap_label "진단"
 dump_ui
 grep -q '연결 진단' /tmp/vpe_ui.xml
+grep -q '실행 환경 및 권한' /tmp/vpe_ui.xml
+grep -q '일반 Android 스마트폰' /tmp/vpe_ui.xml
+echo "PASS: Diagnostic screen identifies non-Automotive device"
 echo "PASS: Separate diagnostics screen"
 adb exec-out screencap -p > /tmp/vpe_diagnostics.png
 
