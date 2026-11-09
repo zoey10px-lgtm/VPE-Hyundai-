@@ -1,53 +1,73 @@
-# VPE Hyundai — Vehicle Persona Engine
+# VPE Hyundai · Vehicle Persona Engine
 
-Native Android (Kotlin) prototype for a vehicle personality AI.
+A Kotlin Android prototype that turns **verified vehicle readings** into a persistent personality and a voice-design blueprint. Visual design is a bright, mobile-first UI with a continuously animated custom orb/waveform.
 
-## Current features
-- Deterministic, bounded weighted vehicle-to-personality mapping
-- Five long-term personality dimensions and two short-term mood dimensions
-- Adjustable age, odometer, fuel, maintenance, exploration, and long-distance driving
-- Korean example dialogue with personality-sensitive Android TextToSpeech pitch/rate
-- `PersonalityMemory` exponential moving average utility for future persistent updates
+## Version 0.4 · What works
 
-## Run
-1. Open repository root in Android Studio (JDK 17).
-2. Sync Gradle, install Android SDK 35.
-3. Run the `app` configuration on an Android 9+ emulator or device.
-4. Install a Korean-capable Android TTS voice to hear the dialogue.
+- **Home:** animated 27-bar waveform and gradient orb, real-vehicle connection, connection progress, profile and data cards.
+- **Conversation:** separate tab with chat bubbles, local message history, prompts, and rule-based replies.
+- **Diagnostics:** separate tab with permission/query errors, actual SDK data reception status, retry, and clipboard copy.
+- **Demo:** clearly labeled **시연용 데모 체험** button on ordinary Android smartphones; no manual sliders; demo data never saved as real vehicle readings.
+- **Identity:** deterministic weighted traits, stable first-time voice *blueprint*, locally saved identity and event-gated long-term learning. Audio/STT/LLM have not been implemented.
 
-## Architecture / limitations
-`PersonaEngine.calculate(snapshot)` is pure and deterministic. Sliders currently provide simulated vehicle inputs; **Pleos Vehicle SDK is not integrated or tested**. No real vehicle data is accessed. The EMA memory utility is provided but not yet connected to persistent storage. There is no LLM integration or free-form speech recognition; dialogue is rule-based. Android TTS supports pitch and speed controls, not full emotional voice synthesis. Weight coefficients are initial design hypotheses and require calibration and scenario testing. Maintenance score and route statistics need future data-source adapters; do not treat them as confirmed Vehicle SDK fields.
+## Pleos Vehicle SDK v2.3.2
 
-## Next
-- Add a `VehicleDataSource` interface with demo and Pleos SDK adapters
-- Persist long-term traits and timestamped maintenance events using Room
-- Apply stable long-term traits to voice generation, and temporary mood as modulation
-- Add scenario/unit tests for reproducibility, missing data, and threshold transitions
-- Connect LLM dialogue with persona state and a voice engine supporting expressive synthesis
+This project resolves the official SDK AAR from Pleos Maven and uses **actual, compile-verified typed methods** rather than guessed method names or reflection.
 
-## Pleos SDK integration (v0.2)
-- Added official Pleos Maven repository and `ai.pleos.playground:Vehicle:2.3.2`.
-- Declared read permissions for relevant domains.
-- `PleosVehicleClient` uses the documented typed Vehicle session, capability check and read-only driver door position request, with error reporting and release on activity destruction.
-- Tap **Pleos SDK 연결 및 운전석 도어 조회** on a compatible Pleos emulator to test connectivity.
-- **Not yet connected to VPE persona inputs:** odometer, fuel, vehicle info, location, and maintenance history still use manual sliders. The door read is an SDK connectivity smoke test only.
-- SDK artifact resolution, compilation, device connection and API responses have **not been verified** in this environment. An APK has not been built.
+| Domain | API | SDK result | Usage |
+| --- | --- | --- | --- |
+| Odometer | checkCurrentDistanceDrivenCapabilities → getCurrentDistanceDriven | Float? | Odometer, kilometers |
+| Fuel | checkFuelPercentCapabilities → getFuelPercent | Int? | Fuel percentage |
+| EvBattery | getEvBatteryLevel | Float? | Battery level if percentage representation is unambiguous |
+| CarInfo | getVINInfo | String? | SHA-256-derived local car key, raw VIN not stored |
 
-## v0.3: Voice-free identity genesis prototype
-- **First connection:** user supplies vehicle data in six demo sliders and taps `VPE 최초 연동 · Identity 생성`.
-- **Deterministic weighted genesis:** `IdentityEngine.generate` calculates baseline personality and a voice **blueprint** (gender presentation, perceived age, pitch, resonance, softness, rate), without synthesizing audio.
-- **Local persistence:** `IdentityStore` stores baseline vehicle snapshot, version, voice blueprint, and personality memory; reopening the app restores the identity.
-- **Long-term evolution:** `운행 경험 반영` applies an EMA update to five long-term traits. Short-term hunger/concern are recomputed from current demo sliders. The first voice blueprint stays stable.
-- **Reset:** `테스트 Identity 초기화` allows testing a fresh genesis.
-- **SDK:** existing Pleos driver-door read remains a separate connection smoke test. Actual SDK data mapping to identity genesis is **not implemented**. No real vehicle identifier is available; demo key is `demo-vehicle`.
-- **No voice audio:** no STT, TTS or audio playback in v0.3.
-- **Verification:** source files were committed to GitHub; compilation, APK creation, runtime behavior, and actual SDK access are not yet verified.
+The manifest declares `pleos.car.permission.CAR_DRIVE`, `CAR_ENERGY`, and `CAR_INFO`. Every read has an asynchronous success/failure callback and separate permission-error reporting. Missing readings remain unavailable in the UI.
 
-## v0.4: Event-gated automatic personality growth
-- Demo slider changes now call `observeVehicleData()` automatically; the manual learn button is removed.
-- `IdentityEngine.evolve` learns only when accumulated changes since the last learning event reach one of these thresholds: +100 km odometer, >=0.05 change in exploration or long-trip ratio, >=10 maintenance score points, or +1 year age.
-- Fuel changes update current short-term mood but do not trigger long-term learning.
-- Each accepted learning event performs one EMA update (alpha 0.05) and saves last-learned snapshot and learning event count. Re-reading identical input does not grow personality.
-- Initial voice blueprint stays unchanged.
-- **Current input source is still the on-screen demo sliders.** Pleos vehicle-property-to-snapshot mapping and live automatic SDK subscriptions are not implemented.
-- Android compilation, APK build and device test remain unverified.
+**Supported device context:** Vehicle Service runs in Pleos Connect on Android Automotive OS. A standard Android phone does not provide that service/privileged data. Actual vehicle-read success must be tested in a Pleos Connect emulator or authorized vehicle environment; Android APK compilation alone is not a proof of car data reception.
+
+The SDK's public CarInfo data in this version exposes VIN and CRN, not a verified model year getter. Maintenance, exploration, and trip history are also not automatically available from the four APIs above. Neutral defaults are used for those personality weight inputs and described in UI. EV battery Float percent range needs validation with actual Pleos emulator responses; unambiguous values are used, raw uncertain values remain diagnostic only.
+
+## Quick start
+
+1. Open **Actions → Build VPE Android APK** and download the successful run's **VPE-Hyundai-debug-apk** artifact.
+2. Unzip the artifact to get **app-debug.apk** and install it on Android 9+.
+3. On a standard phone, use **시연용 데모 체험** to explore the new screens, animation, voice *profile*, and text conversation.
+4. In the **Pleos Connect emulator** with Vehicle Service and relevant access permissions, choose **Pleos 차량 연결하기**; review the **진단** tab for real data and error details.
+5. On a desktop, Android Studio with JDK 17 / Android SDK 35 can run the Gradle project.
+
+## Validation
+
+GitHub Actions workflow **Build VPE Android APK** runs:
+- `gradle testDebugUnitTest assembleDebug`: six automated regression tests including male/female voice profiles, deterministic outputs, learning, fuel/mood separation, and preservation of missing data.
+- `javap` signatures against the resolved SDK `Vehicle-2.3.2.aar`.
+
+Separate workflow **VPE Android UI Smoke** launches an Android 14 emulator and checks:
+- app startup and visible home,
+- two screenshots that show **changed animated waveform frames**,
+- demo identity generation,
+- independent chat navigation/message interaction,
+- separate diagnostic screen,
+- no observed fatal AndroidRuntime crash.
+
+These are **Android UI and build checks**, not a substitute for Pleos Vehicle Service runtime integration testing.
+
+## Code map
+
+- `MainActivity.kt`: home, conversation, diagnostics; separated demo/real states
+- `VpeWaveView.kt`: genuine Android Canvas / ValueAnimator animation (ambient; **not** microphone-driven)
+- `PleosVehicleClient.kt`: typed SDK calls with capability checks, per-domain error handling
+- `VehicleDataMapper.kt`: validates and maps only observed data
+- `PersonaEngine.kt`: deterministic personality and mood
+- `IdentityEngine.kt`: voice profile, long-term EMA learning, engine versioning
+- `IdentityStore.kt`: local personality and voice profile persistence
+- `PersonaEngineTest.kt`: JVM regression suite
+
+## Design references
+
+The navigation hierarchy, separate conversation and minimal diagnostics follow common modern mobile-app patterns and Android Material navigation principles. Rounded surfaces, wide touch controls, colorful gradient orb, and motion take inspiration from modern AI voice-assistant and automotive companion UX. The implementation is original Android code.
+
+## Known next integrations
+
+- Validate real Odometer / Fuel / EV / VIN values in a **Pleos Connect emulator**, including optional/missing-data and permission errors.
+- Add trip and maintenance source adapters to replace neutral personality inputs.
+- Connect an LLM for free-form responses and a voice engine for real audio/STT. The current waveform is a *visual animation only*, not synchronized to microphone or synthesized speech.
