@@ -99,8 +99,23 @@ jobs:
           EOF
           echo "Installed image files:"
           ls -lh "$IMAGE_DIR" | head -25
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
+          export ANDROID_USER_HOME="$HOME/.android"
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_USER_HOME=$ANDROID_USER_HOME" >> "$GITHUB_ENV"
           avdmanager create avd --force -n "VPE_Pleos_Connect" -k "system-images;android-34;android-automotive;x86_64" \
             -d "automotive_1024p_landscape" <<<'no'
+          echo "=== AVD directory and files ==="
+          find "$HOME/.android" -maxdepth 3 -type f | head -45
+          echo "=== avdmanager list ==="
+          avdmanager list avd
+          echo "=== emulator list ==="
+          "$ANDROID_HOME/emulator/emulator" -list-avds
+          test -f "$ANDROID_AVD_HOME/VPE_Pleos_Connect.ini" || {
+            echo "::error::AVD ini was not created where the emulator searches"
+            exit 1
+          }
       - name: Boot Pleos Vehicle Service emulator and exercise SDK
         shell: bash
         run: |
