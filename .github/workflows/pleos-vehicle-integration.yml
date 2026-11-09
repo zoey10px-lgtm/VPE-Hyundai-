@@ -7,7 +7,7 @@ on:
 jobs:
   vehicle-service:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -55,8 +55,46 @@ jobs:
             exit 1
           fi
           echo "PLEOS_PACKAGE=$PACKAGE" >> "$GITHUB_ENV"
-          sdkmanager --install "$PACKAGE" "emulator" "platform-tools" "platforms;android-34"
-          avdmanager create avd --force -n "VPE_Pleos_Connect" -k "$PACKAGE" -d "automotive_1024p_landscape" <<<'no'
+          # GitHub command-line sdkmanager does not index Android Studio's custom
+          # update site. Install the same official, SHA-1 verified system-image ZIP.
+          sdkmanager --install "emulator" "platform-tools" "platforms;android-34"
+          python3 - <<'PY' > /tmp/pleos-archive-info.txt
+          import xml.etree.ElementTree as ET
+          root=ET.parse('/tmp/pleos-avd.xml').getroot()
+          pkg=next(e for e in root.iter() if e.tag.endswith('remotePackage') and
+              e.attrib.get('path')=='system-images;android-34;pleos_car_emulator;x86_64')
+          archive=next(e for e in pkg.iter() if e.tag.endswith('archive'))
+          url=next(e.text for e in archive.iter() if e.tag.endswith('url'))
+          checksum=next(e.text for e in archive.iter() if e.tag.endswith('checksum'))
+          print(url)
+          print(checksum)
+          PY
+          IMAGE_URL=$(sed -n '1p' /tmp/pleos-archive-info.txt)
+          IMAGE_SHA1=$(sed -n '2p' /tmp/pleos-archive-info.txt)
+          echo "Downloading official Pleos image; size ~4 GB, checksum checked after transfer"
+          df -h "$ANDROID_HOME"
+          curl --fail --location --retry 3 --retry-delay 5 --connect-timeout 30 \
+            --max-time 1400 --progress-bar "$IMAGE_URL" -o /tmp/pleos-official-image.zip
+          echo "$IMAGE_SHA1  /tmp/pleos-official-image.zip" | sha1sum -c -
+          mkdir -p "$ANDROID_HOME/system-images/android-34/pleos_car_emulator/x86_64"
+          unzip -q /tmp/pleos-official-image.zip \
+            -d "$ANDROID_HOME/system-images/android-34/pleos_car_emulator/x86_64"
+          rm /tmp/pleos-official-image.zip
+          IMAGE_DIR="$ANDROID_HOME/system-images/android-34/pleos_car_emulator/x86_64"
+          cat > "$IMAGE_DIR/source.properties" <<'EOF'
+          Pkg.Desc=Pleos Connect v2.1.0 APIs x86_64
+          Pkg.Revision=2
+          AndroidVersion.ApiLevel=34
+          SystemImage.Abi=x86_64
+          SystemImage.TagId=android-automotive
+          SystemImage.TagDisplay=Pleos Connect v2.1.0 APIs
+          SystemImage.VendorId=pleos
+          SystemImage.VendorDisplay=Pleos Connect v2.1.0
+          EOF
+          echo "Installed image files:"
+          ls -lh "$IMAGE_DIR" | head -25
+          avdmanager create avd --force -n "VPE_Pleos_Connect" -k "$PACKAGE" \
+            -d "automotive_1024p_landscape" <<<'no'
       - name: Boot Pleos Vehicle Service emulator and exercise SDK
         shell: bash
         run: |
