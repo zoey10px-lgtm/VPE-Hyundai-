@@ -7,6 +7,11 @@ import org.json.JSONObject
 /** Small local prototype store; keeps baseline, voice blueprint and evolving memory. */
 class IdentityStore(context: Context) {
     private val prefs = context.getSharedPreferences("vpe_identity_v1", Context.MODE_PRIVATE)
+    private fun snapshotJson(v: VehicleSnapshot) = JSONObject()
+        .put("age",v.ageYears).put("km",v.odometerKm).put("fuel",v.fuelPercent)
+        .put("care",v.maintenanceScore).put("explore",v.explorationRatio).put("travel",v.longTripRatio)
+    private fun parseSnapshot(v: JSONObject) = VehicleSnapshot(v.getDouble("age"),v.getDouble("km"),
+        v.getDouble("fuel"),v.getDouble("care"),v.getDouble("explore"),v.getDouble("travel"))
     fun save(identity: VpeIdentity) {
         val v = identity.initial
         val b = identity.voiceBlueprint
@@ -19,6 +24,8 @@ class IdentityStore(context: Context) {
                 .put("pitch",b.pitch).put("resonance",b.resonance)
                 .put("softness",b.softness).put("rate",b.speechRate))
             .put("memory", JSONArray(identity.memory.traits))
+            .put("lastLearned", snapshotJson(identity.lastLearned))
+            .put("learningEvents", identity.learningEvents)
         prefs.edit().putString("identity",obj.toString()).apply()
     }
     fun load(): VpeIdentity? {
@@ -34,7 +41,9 @@ class IdentityStore(context: Context) {
             b.getDouble("resonance"),b.getDouble("softness"),b.getDouble("rate"))
         val arr = o.getJSONArray("memory")
         val memory = PersonalityMemory((0 until arr.length()).map { arr.getDouble(it) })
-        VpeIdentity(o.getString("key"),o.getInt("version"),snap,PersonaEngine.calculate(snap),voice,memory)
+        val last = o.optJSONObject("lastLearned")?.let(::parseSnapshot) ?: snap
+        VpeIdentity(o.getString("key"),o.getInt("version"),snap,PersonaEngine.calculate(snap),voice,memory,
+            last, o.optInt("learningEvents", 0))
     } catch (_: Exception) { null }
     }
     fun clear() { prefs.edit().remove("identity").apply() }
