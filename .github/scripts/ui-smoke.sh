@@ -57,6 +57,7 @@ tap_label "시연용 데모 체험"
 dump_ui
 grep -q '데모 페르소나가 준비됐어요' /tmp/vpe_ui.xml
 echo "PASS: Demo mode produced visible persona"
+adb exec-out screencap -p > /tmp/vpe_demo.png
 
 tap_label "대화"
 dump_ui
@@ -65,11 +66,13 @@ tap_label "오늘 기분은?"
 dump_ui
 grep -q '오늘 기분은' /tmp/vpe_ui.xml
 echo "PASS: Chat navigation and interaction"
+adb exec-out screencap -p > /tmp/vpe_chat.png
 
 tap_label "진단"
 dump_ui
 grep -q '연결 진단' /tmp/vpe_ui.xml
 echo "PASS: Separate diagnostics screen"
+adb exec-out screencap -p > /tmp/vpe_diagnostics.png
 
 adb logcat -d -s AndroidRuntime:E | tail -70 > /tmp/vpe_runtime_errors.txt
 if grep -q 'FATAL EXCEPTION.*com.vpe.hyundai' /tmp/vpe_runtime_errors.txt; then
