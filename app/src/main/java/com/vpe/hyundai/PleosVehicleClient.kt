@@ -2,6 +2,7 @@ package com.vpe.hyundai
 
 import android.content.Context
 import ai.pleos.playground.vehicle.Vehicle
+import ai.pleos.playground.vehicle.api.model.capability.AccessType
 import java.security.MessageDigest
 
 /** Typed, read-only Pleos Vehicle SDK 2.3.2 integration, confirmed from actual AAR. */
@@ -26,35 +27,61 @@ class PleosVehicleClient(context: Context) {
         }
 
         try {
-            vehicle.getOdometer().getCurrentDistanceDriven(
-                onComplete = { distance ->
-                    val km = distance?.toDouble()
-                    if (km != null && km.isFinite() && km >= 0.0) {
-                        onReading("ODO_OK: 누적 주행거리 수신", VehicleReadings(odometerKm = km))
+            vehicle.getOdometer().checkCurrentDistanceDrivenCapabilities(
+                onComplete = { capability ->
+                    if (capability.accessType == AccessType.NONE) {
+                        onReading("ODO_UNSUPPORTED: 주행거리 읽기 미지원", null)
                     } else {
-                        onReading("ODO_EMPTY: 주행거리 값 없음", null)
+                        try {
+                            vehicle.getOdometer().getCurrentDistanceDriven(
+                                onComplete = { distance ->
+                                    val km = distance?.toDouble()
+                                    if (km != null && km.isFinite() && km >= 0.0) {
+                                        onReading("ODO_OK: 누적 주행거리 수신", VehicleReadings(odometerKm = km))
+                                    } else {
+                                        onReading("ODO_EMPTY: 주행거리 값 없음", null)
+                                    }
+                                },
+                                onFailed = { error -> onReading("ODO_ERROR: " + safeMessage(error), null) }
+                            )
+                        } catch (error: Exception) {
+                            onReading("ODO_ERROR: " + safeMessage(error), null)
+                        }
                     }
                 },
-                onFailed = { error -> onReading("ODO_ERROR: ${safeMessage(error)}", null) }
+                onFailed = { error -> onReading("ODO_CAP_ERROR: " + safeMessage(error), null) }
             )
         } catch (error: Exception) {
-            onReading("ODO_ERROR: ${safeMessage(error)}", null)
+            onReading("ODO_CAP_ERROR: " + safeMessage(error), null)
         }
 
         try {
-            vehicle.getFuel().getFuelPercent(
-                onComplete = { percent ->
-                    val value = percent?.toDouble()
-                    if (value != null && value in 0.0..100.0) {
-                        onReading("FUEL_OK: 연료 비율 수신", VehicleReadings(fuelPercent = value))
+            vehicle.getFuel().checkFuelPercentCapabilities(
+                onComplete = { capability ->
+                    if (capability.accessType == AccessType.NONE) {
+                        onReading("FUEL_UNSUPPORTED: 연료 비율 읽기 미지원", null)
                     } else {
-                        onReading("FUEL_EMPTY: 연료 비율 확인 불가", null)
+                        try {
+                            vehicle.getFuel().getFuelPercent(
+                                onComplete = { percent ->
+                                    val value = percent?.toDouble()
+                                    if (value != null && value in 0.0..100.0) {
+                                        onReading("FUEL_OK: 연료 비율 수신", VehicleReadings(fuelPercent = value))
+                                    } else {
+                                        onReading("FUEL_EMPTY: 연료 비율 확인 불가", null)
+                                    }
+                                },
+                                onFailed = { error -> onReading("FUEL_ERROR: " + safeMessage(error), null) }
+                            )
+                        } catch (error: Exception) {
+                            onReading("FUEL_ERROR: " + safeMessage(error), null)
+                        }
                     }
                 },
-                onFailed = { error -> onReading("FUEL_ERROR: ${safeMessage(error)}", null) }
+                onFailed = { error -> onReading("FUEL_CAP_ERROR: " + safeMessage(error), null) }
             )
         } catch (error: Exception) {
-            onReading("FUEL_ERROR: ${safeMessage(error)}", null)
+            onReading("FUEL_CAP_ERROR: " + safeMessage(error), null)
         }
 
         try {
