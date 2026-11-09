@@ -7,7 +7,8 @@ import java.security.MessageDigest
 
 /** Typed, read-only Pleos Vehicle SDK 2.3.2 integration, confirmed from actual AAR. */
 class PleosVehicleClient(context: Context) {
-    private val vehicle = Vehicle(context.applicationContext)
+    private val appContext = context.applicationContext
+    private val vehicle = Vehicle(appContext)
     private var initialized = false
 
     @Synchronized private fun ready() {
@@ -18,9 +19,14 @@ class PleosVehicleClient(context: Context) {
     }
 
     fun readVehicleData(onReading: (String, VehicleReadings?) -> Unit) {
+        val environment = VehicleEnvironmentInspector.inspect(appContext)
+        if (!environment.readyForVehicleRequest) {
+            onReading("ENVIRONMENT_ERROR: " + environment.code + ": " + environment.summary, null)
+            return
+        }
         try {
             ready()
-            onReading("Pleos Vehicle Service 초기화 요청 완료", null)
+            onReading("SDK initialize() 호출 완료 · Vehicle Service 통신 성공은 데이터 응답으로 확인", null)
         } catch (error: Exception) {
             onReading("SERVICE_ERROR: ${safeMessage(error)}", null)
             return
@@ -126,7 +132,7 @@ class PleosVehicleClient(context: Context) {
         val message = error.message.orEmpty()
         return when {
             error is SecurityException || "permission" in message.lowercase() ->
-                "PERMISSION_DENIED: Pleos 차량 데이터 권한을 확인하세요."
+                "PERMISSION_DENIED: " + message.take(120)
             "not supported" in message.lowercase() -> "UNSUPPORTED: 이 차량에서 지원되지 않는 데이터"
             else -> error.javaClass.simpleName + ": " + message.take(120)
         }
