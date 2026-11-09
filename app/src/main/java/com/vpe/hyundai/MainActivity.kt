@@ -223,6 +223,8 @@ class MainActivity : Activity() {
                 identity != null -> VpeWaveView.Mode.READY
                 else -> VpeWaveView.Mode.IDLE
             }
+            affectIntensity = hpe?.expression?.motionIntensity?.toFloat() ?: 0.45f
+            valence = hpe?.affect?.valence?.toFloat() ?: 0f
         }
         hero.addView(wave, LinearLayout.LayoutParams(-1, d(218)))
         val mainTitle = when {
@@ -303,14 +305,17 @@ class MainActivity : Activity() {
                     "배고픔" to affect.hunger,
                     "더움" to affect.heat,
                     "추움" to affect.cold,
+                    "피로" to affect.fatigue,
+                    "신남" to affect.excitement,
                     "긴장" to affect.tension,
                     "안도" to affect.relief,
                     "편안함" to affect.comfort
                 )
                 profile.addView(label(moodData.chunked(3).joinToString("\n") { row ->
                     row.joinToString("   ·   ") { (name, value) ->
-                        name + " " + if ((name == "더움" || name == "추움" || name == "편안함") &&
-                            latest.cabinTemperatureC == null && !demo) "미측정" else percent(value)
+                        name + " " + if (name == "피로" || name == "신남") "미연결"
+                        else if ((name == "더움" || name == "추움" || name == "편안함") &&
+                            latest.cabinTemperatureC == null) "미측정" else percent(value)
                     }
                 }, 13f, secondary))
                 profile.addView(gap(11))
@@ -529,7 +534,7 @@ class MainActivity : Activity() {
         sourceCard.addView(gap(13))
         sourceCard.addView(dataRow("공조 전원", latest.hvacOn?.toString() ?: "미수신"))
         sourceCard.addView(gap(13))
-        sourceCard.addView(dataRow("충전 여부", latest.charging?.toString() ?: "미수신"))
+        sourceCard.addView(dataRow("EV 충전 스위치", latest.charging?.toString() ?: "미수신"))
         sourceCard.addView(gap(13))
         sourceCard.addView(dataRow("주차 여부", latest.parked?.toString() ?: "미수신"))
         page.addView(sourceCard)
