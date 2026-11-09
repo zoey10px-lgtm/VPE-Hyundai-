@@ -23,9 +23,9 @@ if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
 $adbs = @()
 if ($DeviceSerial) { $adbs = @("-s", $DeviceSerial) }
 function RunAdb {
-  param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
-  $res = & adb @adbs @Args 2>&1
-  if ($LASTEXITCODE -ne 0) { throw "adb failed: $($Args -join ' ') -- $res" }
+  param([Parameter(ValueFromRemainingArguments = $true)][string[]]$AdbArgs)
+  $res = & adb @adbs @AdbArgs 2>&1
+  if ($LASTEXITCODE -ne 0) { throw "adb failed: $($AdbArgs -join ' ') -- $res" }
   return $res
 }
 if (-not (Test-Path $ApkPath)) {
