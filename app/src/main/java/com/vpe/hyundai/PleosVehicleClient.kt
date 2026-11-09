@@ -198,19 +198,45 @@ class PleosVehicleClient(context: Context) {
             report("EV_CAP_ERROR: " + safeMessage(error), null)
         }
 
+        // VIN is preferred. If unavailable, try the SDK's verified CRN getter.
+        // Neither raw identifier is written to logs or storage.
+        fun readCRNFallback() {
+            try {
+                vehicle.getCarInfo().getCRNInfo(
+                    onComplete = { crn ->
+                        if (crn.isNullOrBlank())
+                            report("IDENTITY_UNAVAILABLE: VIN/CRN 모두 미제공", null)
+                        else
+                            report("CRN_OK: 대체 차량 ID 확인 (원문 비저장)",
+                                VehicleReadings(vehicleKey = fingerprint("CRN:" + crn)))
+                    },
+                    onFailed = { error ->
+                        report("CRN_ERROR: " + safeMessage(error), null)
+                    }
+                )
+            } catch (error: Exception) {
+                report("CRN_ERROR: " + safeMessage(error), null)
+            }
+        }
         try {
             vehicle.getCarInfo().getVINInfo(
                 onComplete = { vin ->
                     if (vin.isNullOrBlank()) {
-                        report("VIN_EMPTY: 차량 고유 식별자 미제공", null)
+                        report("VIN_EMPTY: VIN 미제공 · CRN 조회 시도", null)
+                        readCRNFallback()
                     } else {
-                        report("VIN_OK: 차량 ID 확인 (원문 비저장)", VehicleReadings(vehicleKey = fingerprint(vin)))
+                        report("VIN_OK: 차량 ID 확인 (원문 비저장)",
+                            VehicleReadings(vehicleKey = fingerprint("VIN:" + vin)))
                     }
                 },
-                onFailed = { error -> report("VIN_ERROR: ${safeMessage(error)}", null) }
+                onFailed = { error ->
+                    report("VIN_ERROR: " + safeMessage(error), null)
+                    readCRNFallback()
+                }
             )
         } catch (error: Exception) {
-            report("VIN_ERROR: ${safeMessage(error)}", null)
+            report("VIN_ERROR: " + safeMessage(error), null)
+            readCRNFallback()
         }
     }
 
