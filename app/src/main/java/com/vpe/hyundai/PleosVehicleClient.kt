@@ -32,7 +32,7 @@ class PleosVehicleClient(context: Context) {
             )
             var requested = 0
             sources.forEach { (domain, target) ->
-                val methods = target.javaClass.methods.filter { method ->
+                val allowed = when (domain) {\n                    "Odometer" -> setOf("getOdometer", "getOdometerValue", "getTotalDistance", "getAccumulatedDistance")\n                    "Fuel" -> setOf("getFuelLevel", "getFuelLevelPercent", "getFuelPercentage")\n                    "CarInfo" -> setOf("getVehicleModel", "getModelYear")\n                    else -> emptySet()\n                }\n                val methods = target.javaClass.methods.filter { method ->\n                    method.name in allowed &&
                     method.name.startsWith("get") && method.name != "getClass" &&
                         method.parameterTypes.isNotEmpty() &&
                         method.parameterTypes.all { type ->
@@ -40,7 +40,7 @@ class PleosVehicleClient(context: Context) {
                                 kotlin.jvm.functions.Function2::class.java.isAssignableFrom(type)
                         }
                 }.distinctBy { it.name + it.parameterCount }
-                onReading("$domain: 조회 가능 메서드 ${methods.joinToString { it.name }.ifBlank { "없음" }}", null)
+                onReading("$domain: 허용된 조회 메서드 ${methods.joinToString { it.name }.ifBlank { "없음" }}", null)
                 methods.forEach { method ->
                     requested++
                     try {
@@ -64,7 +64,7 @@ class PleosVehicleClient(context: Context) {
                     }
                 }
             }
-            if (requested == 0) onReading("자동 호출 가능한 SDK getter가 없습니다. 영역·인자가 필요한 API는 별도 구현이 필요합니다.", null)
+            if (requested == 0) onReading("현재 확인된 안전한 SDK 조회 메서드가 없습니다. Pleos 환경 및 API 지원 여부를 확인하세요.", null)
         } catch (e: Exception) {
             onReading("Pleos SDK 초기화/조회 실패: ${e.message ?: e.javaClass.simpleName}", null)
         }
