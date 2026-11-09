@@ -1,7 +1,9 @@
 package com.vpe.hyundai
 
-import android.animation.ValueAnimator
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -10,323 +12,512 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.widget.*
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.Calendar
 
-/** Three separate app destinations: Home, Conversation, Developer diagnostics. */
+/**
+ * VPE consumer-facing app.
+ * Light, expressive UI inspired by contemporary AI/automotive experiences.
+ * Real Pleos data, explicitly labeled demo, and diagnostic data never mix.
+ */
 class MainActivity : Activity() {
     private lateinit var sdk: PleosVehicleClient
     private lateinit var store: IdentityStore
     private lateinit var root: LinearLayout
-    private lateinit var body: LinearLayout
-    private lateinit var navigation: LinearLayout
+    private lateinit var contentHost: LinearLayout
+    private var currentTab = "home"
     private var identity: VpeIdentity? = null
-    private var readings = VehicleReadings()
-    private var snapshot: VehicleSnapshot? = null
-    private var status = "연결 대기"
-    private var description = "Pleos 차량 환경에서 연결을 시작하세요."
-    private var busy = false
+    private var latest: VehicleReadings = VehicleReadings()
+    private var observedSnapshot: VehicleSnapshot? = null
+    private var demo = false
+    private var connecting = false
+    private var connectionNote = "아직 차량과 연결되지 않았어요."
+    private val messages = mutableListOf<Pair<String, String>>()
+    private val diagnosticLogs = mutableListOf<String>()
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var requestId = 0
-    private val diagnostics = mutableListOf<String>()
-    private val conversation = mutableListOf<Pair<String, String>>()
-    private var waveAnimator: ValueAnimator? = null
-    private val bg = Color.rgb(9, 15, 28)
-    private val surface = Color.rgb(20, 31, 50)
-    private val surface2 = Color.rgb(30, 45, 69)
-    private val accent = Color.rgb(117, 164, 249)
-    private val white = Color.rgb(244, 247, 255)
-    private val muted = Color.rgb(163, 177, 198)
+    private var requestSerial = 0
     private val dp get() = resources.displayMetrics.density
-    private fun px(value: Int) = (value * dp).toInt()
+    private fun d(v: Int) = (v * dp + 0.5f).toInt()
+
+    private val ink = Color.rgb(30, 37, 61)
+    private val secondary = Color.rgb(108, 119, 145)
+    private val violet = Color.rgb(105, 90, 226)
+    private val teal = Color.rgb(21, 162, 144)
+    private val cream = Color.rgb(249, 250, 255)
+    private val white = Color.WHITE
+    private val line = Color.rgb(234, 237, 247)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.statusBarColor = cream
+        window.navigationBarColor = white
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         sdk = PleosVehicleClient(this)
         store = IdentityStore(this)
-        identity = store.load()?.takeIf { it.vehicleKey != "demo-vehicle" }
-        if (identity != null) {
-            status = "페르소나 저장됨"
-            description = "저장된 성격을 불러왔어요. 차량 상태는 다시 연결해 확인하세요."
-        }
-        conversation.add("VPE" to "안녕! 차량 연결 후에는 주행 상태와 내 성격에 관해 이야기할 수 있어.")
-        show("home")
+        identity = store.load()?.takeIf { !it.vehicleKey.startsWith("demo") }
+        connectionNote = if (identity != null) "저장된 VPE를 불러왔어요. 실시간 차량 정보는 새로 연결해 주세요." else "아직 차량과 연결되지 않았어요."
+        loadMessages()
+        if (messages.isEmpty()) messages.add("VPE" to "안녕! 내 차의 데이터를 연결하면 우리만의 성격을 만들어 볼 수 있어. 먼저 홈에서 연결해 줘.")
+        render("home")
     }
 
-    private fun shape(color: Int, radius: Int = 20): GradientDrawable =
-        GradientDrawable().apply { setColor(color); cornerRadius = px(radius).toFloat() }
+    private fun type(size: Float, bold: Boolean = false): Typeface =
+        Typeface.create("sans-serif", if (bold) Typeface.BOLD else Typeface.NORMAL)
 
-    private fun text(value: String, size: Float = 15f, color: Int = white, bold: Boolean = false) =
+    private fun label(value: String, size: Float, color: Int = ink, bold: Boolean = false): TextView =
         TextView(this).apply {
-            this.text = value; textSize = size; setTextColor(color)
-            if (bold) setTypeface(null, Typeface.BOLD)
+            text = value; textSize = size; setTextColor(color); typeface = type(size, bold)
             includeFontPadding = true
         }
 
-    private fun gap(h: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, px(h)) }
+    private fun shape(color: Int, radius: Int = 24, stroke: Int? = null): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = d(radius).toFloat()
+            if (stroke != null) setStroke(d(1), stroke)
+        }
 
-    private fun card(): LinearLayout = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(px(20), px(20), px(20), px(20))
-        background = shape(surface, 22)
+    private fun gradient(): GradientDrawable =
+        GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(Color.rgb(239, 234, 255), Color.rgb(229, 245, 255), Color.rgb(219, 251, 241))
+        ).apply { cornerRadius = d(32).toFloat() }
+
+    private fun gap(h: Int): View = View(this).apply {
+        layoutParams = LinearLayout.LayoutParams(1, d(h))
     }
 
-    private fun button(label: String, primary: Boolean = true, click: () -> Unit) =
-        TextView(this).apply {
-            text = label; textSize = 15f; gravity = Gravity.CENTER
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(if (primary) bg else white)
-            background = shape(if (primary) accent else surface2, 18)
-            setPadding(px(16), px(17), px(16), px(17))
-            setOnClickListener { click() }
+    private fun column(padding: Int = 0): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        if (padding != 0) setPadding(d(padding), d(padding), d(padding), d(padding))
+    }
+
+    private fun row(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+    }
+
+    private fun card(): LinearLayout = column(20).apply {
+        background = shape(white, 26, line)
+        elevation = d(2).toFloat()
+    }
+
+    private fun button(value: String, primary: Boolean = true, onClick: () -> Unit): TextView =
+        label(value, 15f, if (primary) white else violet, true).apply {
+            gravity = Gravity.CENTER
+            minHeight = d(54)
+            setPadding(d(16), d(12), d(16), d(12))
+            background = shape(if (primary) violet else white, 19, if (primary) null else line)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
         }
 
-    private fun show(destination: String) {
-        waveAnimator?.cancel()
-        root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(bg) }
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(px(22), px(22), px(22), px(14))
+    private fun tag(value: String, backgroundColor: Int = Color.rgb(236, 232, 255),
+                    foregroundColor: Int = violet): TextView =
+        label(value, 12f, foregroundColor, true).apply {
+            background = shape(backgroundColor, 50)
+            setPadding(d(12), d(8), d(12), d(8))
         }
-        header.addView(text("VPE", 25f, white, true))
-        header.addView(text("   VEHICLE PERSONA", 11f, accent, true))
+
+    private fun render(tab: String = currentTab) {
+        currentTab = tab
+        root = column().apply { setBackgroundColor(cream) }
+        val header = row().apply { setPadding(d(24), d(15), d(24), d(12)) }
+        val logo = label("vpe.", 29f, violet, true)
+        header.addView(logo, LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(tag(if (demo) "●  DEMO" else if (connecting) "●  CONNECTING"
+            else if (identity != null) "●  SAVED" else "○  OFFLINE",
+            if (connecting) Color.rgb(230, 245, 255) else Color.rgb(239, 234, 255)))
         root.addView(header)
-        val scroll = ScrollView(this).apply { isFillViewport = true; clipToPadding = false }
-        body = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(px(20), px(14), px(20), px(24))
-        }
-        scroll.addView(body)
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        navigation = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(px(12), px(9), px(12), px(12))
-            background = shape(surface, 0)
-        }
-        listOf(Triple("⌂  홈", "home", "home"), Triple("◉  대화", "chat", "chat"),
-            Triple("⚙  진단", "diagnostics", "diagnostics")).forEach { (label, target, _) ->
-            val item = text(label, 14f, if (destination == target) accent else muted, destination == target).apply {
-                gravity = Gravity.CENTER; setPadding(0, px(12), 0, px(12))
-                setOnClickListener { show(target) }
-            }
-            navigation.addView(item, LinearLayout.LayoutParams(0, -2, 1f))
-        }
-        root.addView(navigation)
-        setContentView(root)
-        when (destination) {
+
+        contentHost = column()
+        root.addView(contentHost, LinearLayout.LayoutParams(-1, 0, 1f))
+        when (tab) {
             "chat" -> chatScreen()
-            "diagnostics" -> diagnosticScreen()
+            "diagnostics" -> diagnosticsScreen()
             else -> homeScreen()
         }
+
+        val navWrap = row().apply {
+            setPadding(d(10), d(9), d(10), d(13))
+            setBackgroundColor(white)
+        }
+        listOf(Triple("⌂", "홈", "home"), Triple("◉", "대화", "chat"),
+            Triple("✧", "진단", "diagnostics")).forEach { (symbol, name, target) ->
+            val active = target == tab
+            val item = column().apply {
+                gravity = Gravity.CENTER
+                minHeight = d(56)
+                setPadding(d(8), d(5), d(8), d(5))
+                background = if (active) shape(Color.rgb(242, 239, 255), 20) else null
+                setOnClickListener { if (target != currentTab) render(target) }
+                isClickable = true
+            }
+            item.addView(label(symbol, 21f, if (active) violet else secondary, active))
+            item.addView(label(name, 11f, if (active) violet else secondary, active))
+            navWrap.addView(item, LinearLayout.LayoutParams(0, -1, 1f))
+        }
+        root.addView(navWrap)
+        setContentView(root)
+    }
+
+    private fun scrollContent(): LinearLayout {
+        val scroll = ScrollView(this).apply {
+            isFillViewport = false
+            clipToPadding = false
+            isVerticalScrollBarEnabled = false
+        }
+        val inner = column().apply { setPadding(d(22), d(12), d(22), d(26)) }
+        scroll.addView(inner)
+        contentHost.addView(scroll, LinearLayout.LayoutParams(-1, -1))
+        return inner
     }
 
     private fun homeScreen() {
-        body.addView(text("MY VEHICLE", 12f, accent, true))
-        body.addView(gap(8))
-        body.addView(text("차량과 나만의 AI", 29f, white, true))
-        body.addView(gap(6))
-        body.addView(text("차량의 경험이 성격이 되는 공간", 14f, muted))
-        body.addView(gap(26))
-        val hero = card()
-        hero.addView(text("VPE  ·  INITIALIZATION", 12f, accent, true))
-        hero.addView(gap(25))
-        val wave = text("▏▎▍▌▋▊▉▊▋▌▍▎▏", 25f, accent, true).apply { gravity = Gravity.CENTER }
-        hero.addView(wave)
-        if (busy) {
-            waveAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 950; repeatCount = ValueAnimator.INFINITE
-                repeatMode = ValueAnimator.REVERSE
-                addUpdateListener { wave.alpha = 0.35f + 0.65f * (it.animatedValue as Float) }
-                start()
+        val page = scrollContent()
+        page.addView(label("HELLO, YOUR VEHICLE", 11f, teal, true))
+        page.addView(gap(8))
+        page.addView(label("차가, 나를 닮아가다.", 27f, ink, true))
+        page.addView(gap(5))
+        page.addView(label("함께 달린 시간이 하나의 성격이 되는 경험", 14f, secondary))
+        page.addView(gap(23))
+
+        val hero = column(20).apply { background = gradient() }
+        val header = row()
+        header.addView(tag("VPE  /  PERSONALITY ENGINE", Color.argb(175, 255, 255, 255), ink))
+        hero.addView(header)
+        val wave = VpeWaveView(this).apply {
+            mode = when {
+                connecting -> VpeWaveView.Mode.CONNECTING
+                identity != null -> VpeWaveView.Mode.READY
+                else -> VpeWaveView.Mode.IDLE
             }
         }
-        hero.addView(gap(25))
-        hero.addView(text(status, 24f, white, true).apply { gravity = Gravity.CENTER })
-        hero.addView(gap(8))
-        hero.addView(text(description, 13f, muted).apply { gravity = Gravity.CENTER })
-        hero.addView(gap(25))
-        val stage = if (identity != null) 4 else if (busy) 1 else 0
-        listOf("차량 데이터 연결", "데이터 분석", "성격·보이스 설계", "Identity 저장").forEachIndexed { index, name ->
-            hero.addView(text("${if (index < stage) "●" else "○"}   $name", 14f,
-                if (index < stage) accent else muted))
-            hero.addView(gap(10))
+        hero.addView(wave, LinearLayout.LayoutParams(-1, d(218)))
+        val mainTitle = when {
+            connecting -> "당신의 차를 알아가는 중"
+            demo -> "데모 페르소나가 준비됐어요"
+            identity != null -> "나만의 VPE가 탄생했어요"
+            else -> "차량과 연결할 준비 완료"
         }
-        hero.addView(gap(12))
-        hero.addView(button(if (busy) "차량 데이터 조회 중…" else if (identity == null)
-            "차량 연결 시작" else "차량 상태 새로고침") { if (!busy) connect() })
-        body.addView(hero)
-        body.addView(gap(22))
+        hero.addView(label(mainTitle, 23f, ink, true).apply { gravity = Gravity.CENTER })
+        hero.addView(gap(9))
+        hero.addView(label(connectionNote, 13f, secondary).apply { gravity = Gravity.CENTER })
+        hero.addView(gap(24))
+        val stepsDone = if (identity != null) 4 else if (connecting) 1 else 0
+        val steps = row().apply { gravity = Gravity.CENTER }
+        repeat(4) { index ->
+            steps.addView(View(this@MainActivity).apply {
+                background = shape(if (index < stepsDone) violet else Color.argb(110, 255, 255, 255), 6)
+            }, LinearLayout.LayoutParams(0, d(6), 1f).apply {
+                if (index > 0) leftMargin = d(7)
+            })
+        }
+        hero.addView(steps)
+        hero.addView(gap(17))
+        hero.addView(button(if (connecting) "연결 중 · 잠시만요"
+            else if (identity != null && !demo) "차량 데이터 새로고침"
+            else "Pleos 차량 연결하기") { if (!connecting) connectVehicle() })
+        page.addView(hero)
+        page.addView(gap(12))
+        page.addView(button("✦  시연용 데모 체험", primary = false) { loadDemo() })
+        page.addView(gap(24))
+
         if (identity != null) {
-            val id = identity!!
+            page.addView(label("나의 페르소나", 20f, ink, true))
+            page.addView(gap(12))
+            val traits = identity!!.memory.traits
             val profile = card()
-            profile.addView(text("나의 VPE 프로필", 18f, white, true))
-            profile.addView(gap(12))
-            profile.addView(text("보이스 설계  ·  ${id.voiceBlueprint.ageGroup} / ${id.voiceBlueprint.presentation}", 14f, muted))
-            profile.addView(gap(8))
-            profile.addView(text("성격 성장 횟수  ·  ${id.learningEvents}회", 14f, muted))
+            profile.addView(row().apply {
+                addView(label(if (demo) "데모 페르소나" else "VPE IDENTITY", 13f, teal, true),
+                    LinearLayout.LayoutParams(0, -2, 1f))
+                addView(tag(if (demo) "가상 차량" else "차량 데이터 기반"))
+            })
             profile.addView(gap(16))
-            profile.addView(button("VPE와 대화하기") { show("chat") })
-            body.addView(profile)
-        } else {
-            body.addView(text("연결 안내", 17f, white, true))
-            body.addView(gap(8))
-            body.addView(text("차량 데이터는 Pleos 권한이 있는 실행 환경에서 읽습니다. 일반 스마트폰에서는 차량 접근이 제한될 수 있어요.", 13f, muted))
+            profile.addView(label("호기심  ${(traits[1] * 100).toInt()}%   ·   친밀감  ${(traits[2] * 100).toInt()}%", 17f, ink, true))
+            profile.addView(gap(9))
+            profile.addView(label("보이스 설계  ·  ${identity!!.voiceBlueprint.ageGroup} / ${identity!!.voiceBlueprint.presentation}", 13f, secondary))
+            profile.addView(gap(14))
+            profile.addView(button("VPE와 대화하기") { render("chat") })
+            page.addView(profile)
+            page.addView(gap(18))
         }
+        page.addView(label("차량 데이터", 20f, ink, true))
+        page.addView(gap(12))
+        val info = row()
+        val distance = if (demo) observedSnapshot?.odometerKm else latest.odometerKm
+        val energy = if (demo) observedSnapshot?.fuelPercent else latest.energyPercent()
+        info.addView(metric("누적 주행거리", distance?.let { "%,.0f km".format(it) } ?: "조회 전",
+            Color.rgb(238, 236, 255)), LinearLayout.LayoutParams(0, -2, 1f))
+        info.addView(metric("에너지 잔량", energy?.let { "${it.toInt()}%" } ?: "조회 전",
+            Color.rgb(226, 250, 244)), LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = d(10) })
+        page.addView(info)
+        page.addView(gap(14))
+        page.addView(label("SDK에서 확인되지 않은 운행 이력·관리 점수는 중립 기준값으로 처리되며 실제 측정값으로 표시하지 않습니다.", 12f, secondary))
     }
+
+    private fun metric(title: String, value: String, color: Int): LinearLayout =
+        column(17).apply {
+            background = shape(color, 22)
+            addView(label(title, 12f, secondary))
+            addView(gap(10))
+            addView(label(value, 19f, ink, true))
+        }
 
     private fun chatScreen() {
-        body.addView(text("VPE와 대화", 27f, white, true))
-        body.addView(gap(7))
-        body.addView(text("차량의 상태와 성격을 대화로 확인하세요.", 13f, muted))
-        body.addView(gap(22))
-        val messages = card()
-        conversation.forEach { (sender, content) ->
-            val bubble = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(px(14), px(12), px(14), px(12))
-                background = shape(if (sender == "나") surface2 else Color.rgb(25, 40, 63), 14)
+        val title = column().apply { setPadding(d(23), d(8), d(23), d(12)) }
+        title.addView(label("VPE와 대화", 25f, ink, true))
+        title.addView(gap(4))
+        title.addView(label("내 차의 성격과 오늘의 상태를 알아보세요", 13f, secondary))
+        contentHost.addView(title)
+
+        val scroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false }
+        val conversationView = column().apply { setPadding(d(17), d(12), d(17), d(18)) }
+        scroll.addView(conversationView)
+        contentHost.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        messages.forEach { (sender, message) ->
+            val mine = sender == "나"
+            val alignment = row().apply { gravity = if (mine) Gravity.RIGHT else Gravity.LEFT }
+            val bubble = column(14).apply {
+                background = shape(if (mine) violet else white, 21, if (mine) null else line)
             }
-            bubble.addView(text(sender, 12f, accent, true))
-            bubble.addView(gap(4))
-            bubble.addView(text(content, 15f))
-            messages.addView(bubble)
-            messages.addView(gap(10))
+            bubble.addView(label(message, 15f, if (mine) white else ink))
+            alignment.addView(bubble, LinearLayout.LayoutParams(-2, -2).apply {
+                width = if (resources.displayMetrics.widthPixels > d(540)) d(400)
+                    else (resources.displayMetrics.widthPixels * 0.76).toInt()
+            })
+            conversationView.addView(alignment)
+            conversationView.addView(gap(11))
         }
-        body.addView(messages)
-        body.addView(gap(16))
-        val inputRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+
+        val actions = row().apply {
+            setPadding(d(17), d(7), d(17), d(7))
+        }
+        listOf("오늘 기분은?", "내 성격은?").forEach { prompt ->
+            val chip = tag(prompt, Color.rgb(238, 236, 255), violet)
+            chip.setOnClickListener { sendMessage(prompt) }
+            actions.addView(chip, LinearLayout.LayoutParams(-2, -2).apply { rightMargin = d(8) })
+        }
+        contentHost.addView(actions)
+
+        val composer = row().apply {
+            setPadding(d(14), d(9), d(14), d(13))
+            setBackgroundColor(white)
+        }
         val input = EditText(this).apply {
-            hint = "메시지를 입력하세요"; setHintTextColor(muted); setTextColor(white)
-            textSize = 14f; setSingleLine(true)
+            hint = "VPE에게 이야기하기"
+            textSize = 14f; setTextColor(ink); setHintTextColor(secondary)
+            typeface = type(14f)
+            setSingleLine(true)
             imeOptions = EditorInfo.IME_ACTION_SEND
-            background = shape(surface, 14)
-            setPadding(px(14), px(12), px(14), px(12))
+            background = shape(cream, 22, line)
+            setPadding(d(16), d(13), d(16), d(13))
         }
-        fun send() {
-            val message = input.text.toString().trim()
-            if (message.isNotEmpty()) {
-                conversation.add("나" to message)
-                conversation.add("VPE" to respond(message))
-                show("chat")
+        fun submit() {
+            val typed = input.text.toString().trim()
+            if (typed.isNotEmpty()) {
+                input.setText("")
+                sendMessage(typed)
             }
         }
-        input.setOnEditorActionListener { _, _, _ -> send(); true }
-        inputRow.addView(input, LinearLayout.LayoutParams(0, -2, 1f))
-        val sendButton = button("전송") { send() }
-        val lp = LinearLayout.LayoutParams(px(78), -2).apply { leftMargin = px(8) }
-        inputRow.addView(sendButton, lp)
-        body.addView(inputRow)
-        body.addView(gap(15))
-        body.addView(text("현재는 차량 상태 기반 규칙 응답입니다. LLM·음성 대화는 아직 미연동입니다.", 12f, muted))
+        input.setOnEditorActionListener { _, _, _ -> submit(); true }
+        composer.addView(input, LinearLayout.LayoutParams(0, -2, 1f))
+        composer.addView(button("↑") { submit() },
+            LinearLayout.LayoutParams(d(54), d(52)).apply { leftMargin = d(9) })
+        contentHost.addView(composer)
     }
 
-    private fun respond(message: String): String {
-        val id = identity ?: return "아직 차량 연결이 완료되지 않았어. 홈에서 차량 연결을 시작해 줘."
-        val persona = PersonaEngine.calculate(snapshot ?: id.lastLearned)
+    private fun sendMessage(message: String) {
+        messages.add("나" to message)
+        messages.add("VPE" to reply(message))
+        saveMessages()
+        render("chat")
+    }
+
+    private fun reply(message: String): String {
+        val id = identity ?: return "반가워! 먼저 홈에서 Pleos 차량을 연결하거나 데모를 체험해 줘."
+        val current = observedSnapshot ?: id.lastLearned
+        val persona = PersonaEngine.calculate(current)
+        val energy = if (demo) current.fuelPercent else latest.energyPercent()
+        val distance = if (demo) current.odometerKm else latest.odometerKm
         return when {
-            listOf("연료", "기름", "배터리").any { it in message } ->
-                readings.fuelPercent?.let { "확인된 연료량은 ${it.toInt()}%야." }
-                    ?: "실시간 연료 데이터를 아직 확인하지 못했어."
-            listOf("거리", "주행").any { it in message } ->
-                readings.odometerKm?.let { "누적 주행거리는 ${it.toInt()}km야." }
-                    ?: "실시간 주행거리 데이터가 아직 없어."
-            listOf("성격", "누구").any { it in message } ->
-                "내 호기심은 ${(id.memory.traits[1] * 100).toInt()}%, 친밀감은 ${(id.memory.traits[2] * 100).toInt()}%야."
+            listOf("연료", "기름", "배터리", "충전").any { it in message } ->
+                energy?.let { "현재 에너지 잔량은 ${it.toInt()}%야. ${persona.line}" }
+                    ?: "아직 에너지 데이터를 받아오지 못했어."
+            listOf("거리", "주행", "얼마나").any { it in message } ->
+                distance?.let { "확인된 누적 주행거리는 ${"%,.0f".format(it)}km야." }
+                    ?: "주행거리 데이터를 아직 확인하지 못했어."
+            listOf("성격", "누구", "어떤 차").any { it in message } ->
+                "난 호기심 ${(id.memory.traits[1] * 100).toInt()}%, 친밀감 ${(id.memory.traits[2] * 100).toInt()}%인 VPE야. 앞으로 함께 달리며 변할 거야!"
+            listOf("안녕", "반가워").any { it in message } ->
+                "안녕! 반가워. ${persona.line}"
             else -> persona.line
         }
     }
 
-    private fun diagnosticScreen() {
-        body.addView(text("개발자 진단", 27f, white, true))
-        body.addView(gap(8))
-        body.addView(text("SDK 응답과 권한 상태를 확인하는 개발 전용 화면", 13f, muted))
-        body.addView(gap(22))
-        body.addView(button("SDK 조회 다시 실행") { connect() })
-        body.addView(gap(18))
+    private fun diagnosticsScreen() {
+        val page = scrollContent()
+        page.addView(label("연결 진단", 26f, ink, true))
+        page.addView(gap(7))
+        page.addView(label("앱과 Pleos Vehicle Service의 통신 상태", 14f, secondary))
+        page.addView(gap(20))
+        val summary = card()
+        summary.addView(label("SDK  ·  Vehicle 2.3.2", 13f, teal, true))
+        summary.addView(gap(10))
+        summary.addView(label(connectionNote, 16f, ink, true))
+        summary.addView(gap(14))
+        summary.addView(button("다시 연결하기") { connectVehicle() })
+        page.addView(summary)
+        page.addView(gap(18))
+        page.addView(label("수신 상태", 20f, ink, true))
+        page.addView(gap(11))
+        val sourceCard = card()
+        sourceCard.addView(dataRow("Odometer", latest.odometerKm?.let { "수신 · %,.1f km".format(it) } ?: "미수신"))
+        sourceCard.addView(gap(13))
+        sourceCard.addView(dataRow("Fuel", latest.fuelPercent?.let { "수신 · ${it.toInt()}%" } ?: "미수신"))
+        sourceCard.addView(gap(13))
+        sourceCard.addView(dataRow("EV Battery", latest.evBatteryLevel?.let { "수신 · ${it.toInt()}%" } ?: "미수신"))
+        sourceCard.addView(gap(13))
+        sourceCard.addView(dataRow("Vehicle identity", if (latest.vehicleKey != null) "암호화 식별값 확인" else "미수신"))
+        page.addView(sourceCard)
+        page.addView(gap(18))
+        page.addView(label("개발자 로그", 20f, ink, true))
+        page.addView(gap(10))
         val logCard = card()
-        if (diagnostics.isEmpty()) logCard.addView(text("아직 조회 기록이 없습니다.", 14f, muted))
-        diagnostics.takeLast(25).forEach {
-            logCard.addView(text(it, 12f, muted))
-            logCard.addView(gap(9))
-        }
-        body.addView(logCard)
+        logCard.addView(label(
+            if (diagnosticLogs.isEmpty()) "아직 조회한 기록이 없습니다."
+            else diagnosticLogs.takeLast(18).joinToString("\n\n"),
+            12f, secondary
+        ))
+        page.addView(logCard)
+        page.addView(gap(11))
+        page.addView(button("진단 로그 복사", false) {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("VPE diagnostics", diagnosticLogs.joinToString("\n")))
+            Toast.makeText(this, "진단 로그를 복사했어요.", Toast.LENGTH_SHORT).show()
+        })
+        page.addView(gap(15))
+        page.addView(label("실제 차량 데이터는 Pleos Connect 호환 환경과 차량 접근 권한이 필요합니다. 일반 스마트폰에서는 SDK 조회가 거부될 수 있습니다.", 12f, secondary))
     }
 
-    private fun connect() {
-        diagnostics.clear()
-        busy = true
-        val currentRequest = ++requestId
+    private fun dataRow(name: String, value: String): LinearLayout =
+        row().apply {
+            addView(label(name, 14f, ink, true), LinearLayout.LayoutParams(0, -2, 1f))
+            addView(label(value, 12f, if (value.startsWith("수신") || value.startsWith("암호화")) teal else secondary))
+        }
+
+    private fun connectVehicle() {
+        if (connecting) return
+        connecting = true
+        demo = false
+        latest = VehicleReadings()
+        diagnosticLogs.clear()
+        connectionNote = "실제 차량 데이터 연결을 확인하고 있어요."
+        val serial = ++requestSerial
+        render("home")
         mainHandler.postDelayed({
-            if (busy && requestId == currentRequest) {
-                busy = false
-                status = "연결 응답 시간 초과"
-                description = "차량 서비스에서 응답하지 않았어요. 진단 탭에서 확인해 주세요."
-                diagnostics.add("SDK 조회 시간 초과: 12초 동안 필수 차량 데이터 미수신")
-                show("home")
-            }
+            if (connecting && serial == requestSerial) finishConnection(serial, timeout = true)
         }, 12000L)
-        status = "차량 데이터 확인 중"
-        description = "Pleos SDK 응답을 기다리고 있어요."
-        show("home")
-        var accepted = false
+        // SDK IPC is performed off main thread. Callbacks are always marshalled to UI thread.
         Thread {
-          sdk.readVehicleData { message, partial ->
-            runOnUiThread {
-                if (requestId != currentRequest) return@runOnUiThread
-                diagnostics.add(message)
-                if (partial != null) {
-                    readings = readings.copy(
-                        odometerKm = partial.odometerKm ?: readings.odometerKm,
-                        fuelPercent = partial.fuelPercent ?: readings.fuelPercent,
-                        modelYear = partial.modelYear ?: readings.modelYear
-                    )
-                    accepted = true
-                    applyReadings()
-                }
-                if (message.contains("SecurityException") || message.contains("need Permission")) {
-                    busy = false
-                    status = "차량 접근 권한 확인 필요"
-                    description = "Pleos 차량 서비스 권한이 거부됐어요. 진단 탭에서 확인할 수 있어요."
-                    show("home")
-                } else if (!accepted && message.contains("없습니다")) {
-                    busy = false
-                    status = "조회 API 확인 필요"
-                    description = "현재 환경에서 지원되는 차량 데이터 API를 확인해 주세요."
-                    show("home")
+            sdk.readVehicleData { log, reading ->
+                runOnUiThread {
+                    if (serial != requestSerial || !connecting) return@runOnUiThread
+                    diagnosticLogs.add(log)
+                    if (reading != null) {
+                        latest = latest.copy(
+                            odometerKm = reading.odometerKm ?: latest.odometerKm,
+                            fuelPercent = reading.fuelPercent ?: latest.fuelPercent,
+                            modelYear = reading.modelYear ?: latest.modelYear,
+                            evBatteryLevel = reading.evBatteryLevel ?: latest.evBatteryLevel,
+                            vehicleKey = reading.vehicleKey ?: latest.vehicleKey
+                        )
+                        if (latest.odometerKm != null && latest.energyPercent() != null &&
+                            latest.vehicleKey != null) {
+                            finishConnection(serial, timeout = false)
+                        }
+                    }
+                    if (log.startsWith("SERVICE_ERROR")) finishConnection(serial, timeout = false)
                 }
             }
-          }
         }.start()
     }
 
-    private fun applyReadings() {
-        val km = readings.odometerKm
-        val fuel = readings.fuelPercent
-        if (km == null || fuel == null) {
-            busy = false
-            status = "일부 데이터 수신"
-            description = "주행거리와 연료값이 모두 확인되어야 페르소나를 생성해요."
-            show("home")
-            return
+    private fun finishConnection(serial: Int, timeout: Boolean) {
+        if (serial != requestSerial || !connecting) return
+        connecting = false
+        val km = latest.odometerKm
+        if (km != null && km.isFinite() && km >= 0) {
+            val year = Calendar.getInstance().get(Calendar.YEAR)
+            // Missing values are explicitly neutral algorithm inputs, not claimed SDK data.
+            val neutral = VehicleSnapshot(10.0, km, latest.energyPercent() ?: 50.0,
+                50.0, 0.5, 0.5)
+            val existing = identity?.takeIf {
+                it.vehicleKey == (latest.vehicleKey ?: "local-device-vpe") && !demo
+            }
+            val snap = if (existing == null) neutral else VehicleDataMapper.merge(
+                existing.lastLearned, latest, year
+            )
+            identity = if (existing == null) IdentityEngine.generate(
+                latest.vehicleKey ?: "local-device-vpe", snap
+            ) else IdentityEngine.evolve(existing, snap)
+            observedSnapshot = snap
+            identity?.let(store::save)
+            connectionNote = if (latest.energyPercent() == null)
+                "주행거리 수신 완료 · 에너지 데이터는 아직 미확인"
+            else "Pleos 차량 데이터를 반영했어요."
+        } else {
+            connectionNote = when {
+                diagnosticLogs.any { it.contains("PERMISSION_DENIED") } ->
+                    "차량 접근 권한이 거부됐어요. Pleos 환경과 권한을 확인해 주세요."
+                timeout -> "연결 응답이 지연되고 있어요. 진단 탭을 확인해 주세요."
+                else -> "차량 데이터를 확인하지 못했어요. 진단 탭에서 상세 정보를 볼 수 있어요."
+            }
         }
-        val previous = identity
-        val seed = VehicleSnapshot(0.0, km, fuel, 50.0, 0.5, 0.5)
-        val next = if (previous == null) seed else VehicleDataMapper.merge(
-            previous.lastLearned, readings, java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
-        )
-        snapshot = next
-        identity = if (previous == null) IdentityEngine.generate("pleos-sdk-observed", next)
-            else IdentityEngine.evolve(previous, next)
-        identity?.let(store::save)
-        busy = false
-        status = "VPE Identity 준비 완료"
-        description = "차량 데이터로 페르소나를 생성하고 저장했어요."
-        show("home")
+        render("home")
+    }
+
+    private fun loadDemo() {
+        ++requestSerial
+        connecting = false
+        demo = true
+        latest = VehicleReadings()
+        observedSnapshot = VehicleSnapshot(7.0, 87320.0, 71.0, 78.0, 0.64, 0.34)
+        identity = IdentityEngine.generate("demo-vehicle", observedSnapshot!!)
+        connectionNote = "가상의 차량 데이터로 UI와 성격 알고리즘을 체험하고 있어요."
+        diagnosticLogs.clear()
+        render("home")
+    }
+
+    private fun loadMessages() {
+        val raw = getSharedPreferences("vpe_chat", MODE_PRIVATE).getString("history", null) ?: return
+        runCatching {
+            val array = JSONArray(raw)
+            for (i in 0 until array.length()) {
+                val item = array.getJSONObject(i)
+                messages.add(item.getString("who") to item.getString("text"))
+            }
+        }
+    }
+
+    private fun saveMessages() {
+        val array = JSONArray()
+        messages.takeLast(60).forEach { (who, message) ->
+            array.put(JSONObject().put("who", who).put("text", message))
+        }
+        getSharedPreferences("vpe_chat", MODE_PRIVATE).edit().putString("history", array.toString()).apply()
     }
 
     override fun onDestroy() {
-        waveAnimator?.cancel()
-        requestId++
+        ++requestSerial
         mainHandler.removeCallbacksAndMessages(null)
         sdk.release()
         super.onDestroy()
