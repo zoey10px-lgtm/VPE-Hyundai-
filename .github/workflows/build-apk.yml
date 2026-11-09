@@ -47,6 +47,10 @@ jobs:
             echo "== Listener $api =="
             javap -classpath /tmp/vpe-pleos/classes.jar -p "ai.pleos.playground.vehicle.listener.$api" || true
           done
+          for listener in DistanceDrivenListener FuelPercentListener EvBatteryStateOfChargeListener; do
+            echo "== Listener $listener =="
+            javap -classpath /tmp/vpe-pleos/classes.jar -p "ai.pleos.playground.vehicle.listener.$listener" || true
+          done
       - uses: actions/upload-artifact@v4
         if: success()
         with:
