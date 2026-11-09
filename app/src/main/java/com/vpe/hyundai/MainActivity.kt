@@ -31,6 +31,8 @@ class MainActivity : Activity() {
     private lateinit var environment: VehicleEnvironment
     private lateinit var sdk: PleosVehicleClient
     private lateinit var store: IdentityStore
+    private lateinit var hpeStore: HpeStore
+    private var hpe: HpeState? = null
     private lateinit var root: LinearLayout
     private lateinit var contentHost: LinearLayout
     private var currentTab = "home"
@@ -66,7 +68,9 @@ class MainActivity : Activity() {
         environment = VehicleEnvironmentInspector.inspect(this)
         sdk = PleosVehicleClient(this)
         store = IdentityStore(this)
+        hpeStore = HpeStore(this)
         identity = store.load()?.takeIf { !it.vehicleKey.startsWith("demo") }
+        hpe = identity?.let { hpeStore.load(it.vehicleKey) }
         connectionNote = when {
             !environment.automotive -> "이 스마트폰에는 Pleos 차량 서비스가 없어요. 데모 모드에서 VPE를 체험할 수 있어요."
             environment.missingPermissions.isNotEmpty() -> "Pleos 차량 권한이 확인되지 않았어요. 진단 화면에서 상세 원인을 확인해 주세요."
@@ -544,7 +548,13 @@ class MainActivity : Activity() {
                             fuelPercent = reading.fuelPercent ?: latest.fuelPercent,
                             modelYear = reading.modelYear ?: latest.modelYear,
                             evBatteryLevel = reading.evBatteryLevel ?: latest.evBatteryLevel,
-                            vehicleKey = reading.vehicleKey ?: latest.vehicleKey
+                            vehicleKey = reading.vehicleKey ?: latest.vehicleKey,
+                            cabinTemperatureC = reading.cabinTemperatureC ?: latest.cabinTemperatureC,
+                            targetTemperatureC = reading.targetTemperatureC ?: latest.targetTemperatureC,
+                            hvacOn = reading.hvacOn ?: latest.hvacOn,
+                            charging = reading.charging ?: latest.charging,
+                            parked = reading.parked ?: latest.parked,
+                            safetyWarning = reading.safetyWarning ?: latest.safetyWarning
                         )
                         if (connecting && latest.odometerKm != null &&
                             latest.energyPercent() != null && latest.vehicleKey != null) {
@@ -605,6 +615,7 @@ class MainActivity : Activity() {
         identity = if (existing == null) IdentityEngine.generate(key, next)
             else IdentityEngine.evolve(existing, next)
         identity?.let(store::save)
+        updateHumanPersonality()
         return true
     }
 
@@ -627,7 +638,33 @@ class MainActivity : Activity() {
             identity = evolved
             store.save(evolved)
         }
+        updateHumanPersonality()
         if (currentTab == "home" || currentTab == "diagnostics") render(currentTab)
+    }
+
+    private fun updateHumanPersonality() {
+        val id = identity ?: return
+        val snapshot = observedSnapshot ?: id.lastLearned
+        val key = id.vehicleKey
+        val readings = if (demo) VehicleReadings(
+            odometerKm = snapshot.odometerKm, evBatteryLevel = snapshot.fuelPercent,
+            vehicleKey = key
+        ) else latest
+        val signals = HpeSignals(
+            vehicleKey = key,
+            odometerKm = readings.odometerKm,
+            energyPercent = readings.energyPercent(),
+            actualCabinC = readings.cabinTemperatureC,
+            targetCabinC = readings.targetTemperatureC,
+            hvacOn = readings.hvacOn,
+            charging = readings.charging,
+            parked = readings.parked,
+            safetyWarning = readings.safetyWarning
+        )
+        val previous = hpe?.takeIf { it.key == key }
+            ?: if (demo) null else hpeStore.load(key)
+        hpe = HumanPersonalityEngine.observe(signals, previous)
+        if (!demo) hpe?.let(hpeStore::save)
     }
 
     private fun loadDemo() {
@@ -637,6 +674,8 @@ class MainActivity : Activity() {
         latest = VehicleReadings()
         observedSnapshot = VehicleSnapshot(7.0, 87320.0, 71.0, 78.0, 0.64, 0.34)
         identity = IdentityEngine.generate("demo-vehicle", observedSnapshot!!)
+        hpe = null
+        updateHumanPersonality()
         connectionNote = "가상의 차량 데이터로 UI와 성격 알고리즘을 체험하고 있어요."
         diagnosticLogs.clear()
         render("home")
