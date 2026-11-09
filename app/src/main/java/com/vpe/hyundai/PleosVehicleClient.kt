@@ -2,101 +2,93 @@ package com.vpe.hyundai
 
 import android.content.Context
 import ai.pleos.playground.vehicle.Vehicle
-import ai.pleos.playground.vehicle.api.model.area.DoorArea
-import ai.pleos.playground.vehicle.constant.area.DoorValue
+import java.lang.reflect.Method
 
-/**
- * Pleos 2.3.2 typed SDK smoke test.
- * Reads a real SDK property; does not change vehicle state.
- * Other persona inputs remain simulated until their typed adapters are implemented.
- */
+/** Read-only Pleos SDK adapter. No simulated readings are returned as real readings. */
 class PleosVehicleClient(context: Context) {
     private val vehicle = Vehicle(context.applicationContext)
-    private val driverDoor = DoorArea(DoorValue.ROW_1_LEFT)
     private var initialized = false
 
-    fun readDriverDoor(onResult: (String) -> Unit) {
-        try {
-            if (!initialized) {
-                vehicle.initialize()
-                initialized = true
-            }
-            val door = vehicle.getDoor()
-            door.checkDoorPositionCapabilities(
-                onComplete = { _, areaBounds ->
-                    if (!areaBounds.containsKey(driverDoor)) {
-                        onResult("운전석 도어: 지원 영역 없음")
-                    } else {
-                        door.getCurrentDoorPosition(
-                            area = driverDoor,
-                            onComplete = { position ->
-                                onResult("운전석 도어 SDK 응답: ${position ?: "값 없음"}")
-                            },
-                            onFailed = { error -> onResult("도어 조회 실패: ${error.message}") }
-                        )
-                    }
-                },
-                onFailed = { error -> onResult("기능 확인 실패: ${error.message}") }
-            )
-        } catch (error: Exception) {
-            onResult("Pleos 연결 실패: ${error.message ?: error.javaClass.simpleName}")
+    private fun ready() {
+        if (!initialized) {
+            vehicle.initialize()
+            initialized = true
         }
     }
 
     /**
-     * Read-only SDK diagnostic for the VPE input domains.
-     * Uses the SDK's actual public method signatures at runtime rather than assuming
-     * a property name or converting an unknown unit to km/percent.
+     * Discovers the SDK's installed getter signatures and invokes safe zero-argument
+     * asynchronous getters. Callback data is exposed with the originating method name.
+     * Units are not guessed: unrecognized data stays diagnostic-only.
      */
-    fun inspectPersonaSources(onResult: (String) -> Unit) {
+    fun readVehicleData(onReading: (String, VehicleReadings?) -> Unit) {
         try {
-            if (!initialized) {
-                vehicle.initialize()
-                initialized = true
-            }
-            val domains = listOf(
-                "주행거리" to vehicle.getOdometer(),
-                "연료" to vehicle.getFuel(),
-                "차량정보" to vehicle.getCarInfo(),
-                "전기차 배터리" to vehicle.getEvBattery()
+            ready()
+            val sources = listOf(
+                "Odometer" to vehicle.getOdometer(),
+                "Fuel" to vehicle.getFuel(),
+                "CarInfo" to vehicle.getCarInfo(),
+                "EvBattery" to vehicle.getEvBattery()
             )
-            for ((label, target) in domains) {
-                val methods = target.javaClass.methods
-                    .filter { it.name.startsWith("get") && it.name != "getClass" }
-                    .filter { method -> method.parameterTypes.any {
-                        kotlin.jvm.functions.Function1::class.java.isAssignableFrom(it) ||
-                            kotlin.jvm.functions.Function2::class.java.isAssignableFrom(it)
-                    } }
-                    .sortedBy { it.name }
-                onResult("$label: SDK 조회 API ${methods.joinToString { it.name }.ifBlank { "없음" }}")
-                // Zero-argument async getters only; never call a setter or guess area parameters.
-                for (method in methods.filter { m -> m.parameterTypes.all {
-                    kotlin.jvm.functions.Function1::class.java.isAssignableFrom(it) ||
-                        kotlin.jvm.functions.Function2::class.java.isAssignableFrom(it)
-                } }) {
+            var requested = 0
+            sources.forEach { (domain, target) ->
+                val methods = target.javaClass.methods.filter { method ->
+                    method.name.startsWith("get") && method.name != "getClass" &&
+                        method.parameterTypes.isNotEmpty() &&
+                        method.parameterTypes.all { type ->
+                            kotlin.jvm.functions.Function1::class.java.isAssignableFrom(type) ||
+                                kotlin.jvm.functions.Function2::class.java.isAssignableFrom(type)
+                        }
+                }.distinctBy { it.name + it.parameterCount }
+                onReading("$domain: 조회 가능 메서드 ${methods.joinToString { it.name }.ifBlank { "없음" }}", null)
+                methods.forEach { method ->
+                    requested++
                     try {
-                        val args = method.parameterTypes.map { type ->
+                        val args = method.parameterTypes.mapIndexed { index, type ->
+                            val isFailure = index > 0 && index == method.parameterTypes.lastIndex
                             if (kotlin.jvm.functions.Function2::class.java.isAssignableFrom(type)) {
                                 { a: Any?, b: Any? ->
-                                    onResult("$label.${method.name}: ${a ?: "null"}, ${b ?: "null"}")
-                                    kotlin.Unit
+                                    receive(domain, method, if (a is Number) a else b, isFailure, onReading)
+                                    Unit
                                 }
                             } else {
                                 { value: Any? ->
-                                    onResult("$label.${method.name}: ${value ?: "null"}")
-                                    kotlin.Unit
+                                    receive(domain, method, value, isFailure, onReading)
+                                    Unit
                                 }
                             }
                         }.toTypedArray()
                         method.invoke(target, *args)
                     } catch (e: Exception) {
-                        onResult("$label.${method.name} 호출 실패: ${e.cause?.message ?: e.message}")
+                        onReading("$domain.${method.name}: ${e.cause?.message ?: e.message}", null)
                     }
                 }
             }
+            if (requested == 0) onReading("자동 호출 가능한 SDK getter가 없습니다. 영역·인자가 필요한 API는 별도 구현이 필요합니다.", null)
         } catch (e: Exception) {
-            onResult("SDK 데이터 조회 초기화 실패: ${e.message}")
+            onReading("Pleos SDK 초기화/조회 실패: ${e.message ?: e.javaClass.simpleName}", null)
         }
+    }
+
+    private fun receive(
+        domain: String, method: Method, value: Any?, failed: Boolean,
+        onReading: (String, VehicleReadings?) -> Unit
+    ) {
+        val name = method.name.lowercase()
+        val number = value as? Number
+        val n = number?.toDouble()
+        val reading = if (!failed && n != null && n.isFinite()) {
+            when {
+                domain == "Odometer" && ("km" in name || "kilometer" in name) &&
+                    ("total" in name || "odometer" in name || "accumulated" in name) ->
+                    VehicleReadings(odometerKm = n)
+                domain == "Fuel" && ("percent" in name || "percentage" in name) ->
+                    VehicleReadings(fuelPercent = n)
+                else -> null
+            }
+        } else null
+        onReading("$domain.${method.name}: ${value ?: "null"}" +
+            if (reading != null) " (VPE 입력 반영 가능)" else " (단위 확인 필요/진단)", reading)
     }
 
     fun release() {
