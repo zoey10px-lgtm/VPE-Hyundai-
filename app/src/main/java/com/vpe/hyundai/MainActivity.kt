@@ -62,7 +62,7 @@ class MainActivity : Activity() {
     }
 
     private fun showDashboard() {
-        val scroll = ScrollView(this).apply { setBackgroundColor(navy); fillViewport = true }
+        val scroll = ScrollView(this).apply { setBackgroundColor(navy); isFillViewport = true }
         page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             val p = (24 * resources.displayMetrics.density).toInt()
