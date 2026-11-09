@@ -63,6 +63,36 @@ Separate workflow **VPE Android UI Smoke** launches an Android 14 emulator and c
 
 The UI smoke test additionally verifies the non-Automotive environment notice and the phone demo entry path. These are **Android UI and build checks**, not a substitute for Pleos Vehicle Service runtime integration testing.
 
+## Real Pleos data reception — acceptance test
+
+**Successful APK compilation and ordinary Android emulator UI tests are not proof of Vehicle Service reception.** For the VPE SDK integration to pass, the app must receive at least one actual numeric `ODO_OK: km=<number>` callback on the **official Pleos Connect v2.1.0 API 34 Automotive emulator**, not from the fixed UI/demo fixtures. `FUEL_OK: percent=<number>`, `EV_OK: percent=<number>`, and `VIN_OK`/`CRN_OK` provide independent evidence for energy and vehicle identity. A capability/listener-registration message alone is **not** a data receipt.
+
+### Windows / Android Studio verification
+
+1. Install the official Pleos Connect system image from `https://nexus-playground.pleos.ai/repository/raw-releases/connect-avd/2.x/crp-sys-img.xml` under **SDK Manager → SDK Update Sites**.
+2. Create an **Automotive** AVD with **Pleos Connect v2.1.0 APIs, API 34**, **Cold boot**, **4 GB RAM**. The official Pleos emulator documentation requires a discrete graphics card; standard GitHub Actions runners may fail to boot it.
+3. Boot that AVD and wait until the vehicle UI is fully loaded. Use Android Studio terminal / PowerShell from this repository's root:
+
+   ```powershell
+   gradle assembleDebug
+   powershell -ExecutionPolicy Bypass -File tools/verify-pleos.ps1 -ApkPath app/build/outputs/apk/debug/app-debug.apk -WatchSeconds 60
+   ```
+
+   The verifier installs the real APK, confirms Android Automotive, opens VPE, taps **Pleos 차량 연결하기**, collects `VPE_PLEOS` logs under `pleos-evidence/`, and asserts a **numeric odometer callback**. It never fabricates SDK responses.
+
+4. To test *changing* values in Vehicle Service, forward `adb forward tcp:8088 tcp:8088`, visit `http://127.0.0.1:8088/` on the host browser and use **Motion → Driving Distance** or **Energy** controls while the `-WatchSeconds` observation runs. The logs must include `ODO_UPDATE: km=` or `FUEL_UPDATE: percent=` / `EV_SOC_UPDATE: percent=`. These are the actual registered Pleos listeners.
+5. Inspect `pleos-evidence/sdk-callbacks.txt`. `ODO_ERROR` or `PERMISSION_DENIED` is a real failure to investigate, **not** a successful integration. Do not use the app's demo button for acceptance.
+
+### SDK integration implemented
+
+- Typed `Vehicle.getOdometer().getCurrentDistanceDriven(...)` and `registerDistanceDriven(...)`.
+- Typed `getFuelPercent(...)` and `registerFuelPercent(...)`.
+- Typed `getEvBatteryStateOfCharge(...)` and `registerEvBatteryStateOfCharge(...)`.
+- VIN read with CRN fallback (SHA-256-derived identifier, original not logged or saved).
+- Successful numeric SDK readings feed `VehicleDataMapper` and `IdentityEngine`. Sensor updates persist after initial connection, with long-term memory changing only at the engine's thresholds.
+- Domain failures are independent; a missing CarInfo permission no longer suppresses driving/energy callbacks.
+- `VehicleEnvironmentInspector` separates a regular phone from the Pleos Automotive host; it is **not** itself proof of Vehicle Service connectivity.
+
 ## Code map
 
 - `MainActivity.kt`: home, conversation, diagnostics; separated demo/real states
