@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -25,6 +27,7 @@ import java.util.Calendar
  * Real Pleos data, explicitly labeled demo, and diagnostic data never mix.
  */
 class MainActivity : Activity() {
+    private lateinit var environment: VehicleEnvironment
     private lateinit var sdk: PleosVehicleClient
     private lateinit var store: IdentityStore
     private lateinit var root: LinearLayout
@@ -59,10 +62,16 @@ class MainActivity : Activity() {
         window.navigationBarColor = white
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        environment = VehicleEnvironmentInspector.inspect(this)
         sdk = PleosVehicleClient(this)
         store = IdentityStore(this)
         identity = store.load()?.takeIf { !it.vehicleKey.startsWith("demo") }
-        connectionNote = if (identity != null) "저장된 VPE를 불러왔어요. 실시간 차량 정보는 새로 연결해 주세요." else "아직 차량과 연결되지 않았어요."
+        connectionNote = when {
+            !environment.automotive -> "이 스마트폰에는 Pleos 차량 서비스가 없어요. 데모 모드에서 VPE를 체험할 수 있어요."
+            environment.missingPermissions.isNotEmpty() -> "Pleos 차량 권한이 확인되지 않았어요. 진단 화면에서 상세 원인을 확인해 주세요."
+            identity != null -> "저장된 VPE를 불러왔어요. 실시간 차량 정보는 새로 연결해 주세요."
+            else -> "Pleos 차량과 연결할 준비가 됐어요."
+        }
         loadMessages()
         if (messages.isEmpty()) messages.add("VPE" to "안녕! 내 차의 데이터를 연결하면 우리만의 성격을 만들어 볼 수 있어. 먼저 홈에서 연결해 줘.")
         render("home")
@@ -225,12 +234,21 @@ class MainActivity : Activity() {
         }
         hero.addView(steps)
         hero.addView(gap(17))
-        hero.addView(button(if (connecting) "연결 중 · 잠시만요"
-            else if (identity != null && !demo) "차량 데이터 새로고침"
-            else "Pleos 차량 연결하기") { if (!connecting) connectVehicle() })
+        hero.addView(button(
+            when {
+                connecting -> "차량 데이터 확인 중…"
+                !environment.automotive -> "Pleos 차량 연동 안내"
+                environment.missingPermissions.isNotEmpty() -> "차량 접근 권한 진단"
+                identity != null && !demo -> "차량 데이터 새로고침"
+                else -> "Pleos 차량 연결하기"
+            }
+        ) {
+            if (environment.readyForVehicleRequest && !connecting) connectVehicle()
+            else render("diagnostics")
+        })
         page.addView(hero)
         page.addView(gap(12))
-        page.addView(button("✦  시연용 데모 체험", primary = false) { loadDemo() })
+        page.addView(button(if (!environment.automotive) "✦  스마트폰에서 VPE 데모 시작" else "✦  시연용 데모 체험", primary = false) { loadDemo() })
         page.addView(gap(24))
 
         if (identity != null) {
@@ -389,9 +407,37 @@ class MainActivity : Activity() {
         summary.addView(label("SDK  ·  Vehicle 2.3.2", 13f, teal, true))
         summary.addView(gap(10))
         summary.addView(label(connectionNote, 16f, ink, true))
+        summary.addView(gap(12))
+        summary.addView(label(environment.summary, 13f, secondary))
         summary.addView(gap(14))
-        summary.addView(button("다시 연결하기") { connectVehicle() })
+        if (environment.readyForVehicleRequest) {
+            summary.addView(button("Pleos 차량 연결 재시도") { connectVehicle() })
+        } else {
+            summary.addView(button("시연용 VPE 바로 체험하기") { loadDemo() })
+        }
         page.addView(summary)
+        page.addView(gap(18))
+        page.addView(label("실행 환경 및 권한", 20f, ink, true))
+        page.addView(gap(11))
+        val permissionsCard = card()
+        permissionsCard.addView(dataRow("실행 환경",
+            if (environment.automotive) "Android Automotive" else "일반 Android 스마트폰"))
+        permissionsCard.addView(gap(13))
+        environment.permissions.forEach { check ->
+            permissionsCard.addView(dataRow(check.shortName, check.description))
+            permissionsCard.addView(gap(13))
+        }
+        permissionsCard.addView(label(
+            "Pleos의 CAR_* 권한은 일반 Android 팝업으로 승인받는 권한이 아닙니다. 차량용 Pleos Connect 시스템 이미지와 Vehicle Service가 필요합니다.",
+            12f, secondary
+        ))
+        page.addView(permissionsCard)
+        page.addView(gap(10))
+        page.addView(button("Pleos Connect 공식 에뮬레이터 설치 안내", primary = false) {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(
+                "https://document.pleos.ai/en/docs/connect/guide/getting-started/application-development/setup-connect-sdk-emulator"
+            )))
+        })
         page.addView(gap(18))
         page.addView(label("수신 상태", 20f, ink, true))
         page.addView(gap(11))
@@ -432,6 +478,19 @@ class MainActivity : Activity() {
 
     private fun connectVehicle() {
         if (connecting) return
+        environment = VehicleEnvironmentInspector.inspect(this)
+        if (!environment.readyForVehicleRequest) {
+            ++requestSerial
+            connecting = false
+            diagnosticLogs.clear()
+            diagnosticLogs.add("ENVIRONMENT: " + environment.code)
+            environment.permissions.forEach { check ->
+                diagnosticLogs.add(check.shortName + ": " + check.description)
+            }
+            connectionNote = environment.summary
+            render("diagnostics")
+            return
+        }
         connecting = true
         if (demo) { identity = null; observedSnapshot = null }
         demo = false
