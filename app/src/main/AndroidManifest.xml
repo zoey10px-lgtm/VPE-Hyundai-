@@ -1,14 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="pleos.car.permission.CAR_DOORS"/>
-    <uses-permission android:name="pleos.car.permission.CAR_DRIVE"/>
-    <uses-permission android:name="pleos.car.permission.CAR_ENERGY"/>
-    <uses-permission android:name="pleos.car.permission.CAR_INFO"/>
-    <uses-permission android:name="pleos.car.permission.CAR_SAFETY"/>
-    <application android:label="VPE Hyundai" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+    <!-- Regular Android phones may run the VPE demo. Real Vehicle Service requires Pleos Automotive. -->
+    <uses-feature android:name="android.hardware.type.automotive" android:required="false" />
+    <!-- Only read domains required by VPE's typed Pleos Vehicle SDK calls. -->
+    <uses-permission android:name="pleos.car.permission.CAR_DRIVE" />
+    <uses-permission android:name="pleos.car.permission.CAR_ENERGY" />
+    <uses-permission android:name="pleos.car.permission.CAR_INFO" />
+    <application
+        android:label="VPE Hyundai"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
     </application>
