@@ -437,27 +437,36 @@ class MainActivity : Activity() {
     }
 
     private fun reply(message: String): String {
-        val id = identity ?: return "반가워! 먼저 홈에서 Pleos 차량을 연결하거나 데모를 체험해 줘."
-        val current = observedSnapshot ?: id.lastLearned
-        val persona = PersonaEngine.calculate(current)
-        val energy = if (demo) current.fuelPercent else latest.energyPercent()
-        val distance = if (demo) current.odometerKm else latest.odometerKm
+        val identityNow = identity ?: return "반가워! 먼저 홈에서 Pleos 차량을 연결하거나 데모를 체험해 줘."
+        val state = hpe ?: return "내 성격을 분석 중이야. 홈에서 차량 정보를 새로고침해 줘."
+        val energy = if (demo) observedSnapshot?.fuelPercent else latest.energyPercent()
+        val distance = if (demo) observedSnapshot?.odometerKm else latest.odometerKm
+        val mood = state.affect
         return when {
+            listOf("MBTI", "mbti", "성격", "누구", "어떤 차").any { it in message } ->
+                "난 " + state.core.mbti + " 유형이야. 내 호기심은 " +
+                    (state.core.traits[1] * 100).toInt() + "%, 친밀감은 " +
+                    (state.core.traits[2] * 100).toInt() + "%야. " + state.expression.utterance
             listOf("연료", "기름", "배터리", "충전").any { it in message } ->
-                energy?.let { "현재 에너지 잔량은 ${it.toInt()}%야. ${persona.line}" }
+                energy?.let { "현재 에너지 잔량은 " + it.toInt() + "%야. " + state.expression.utterance }
                     ?: "아직 에너지 데이터를 받아오지 못했어."
+            listOf("실내", "온도", "더워", "추워", "공조").any { it in message } ->
+                latest.cabinTemperatureC?.let { "실내 현재온도는 " + it + "°C야. " + state.expression.utterance }
+                    ?: "현재 실내온도는 아직 SDK에서 확인되지 않았어."
             listOf("거리", "주행", "얼마나").any { it in message } ->
-                distance?.let { "확인된 누적 주행거리는 ${"%,.0f".format(it)}km야." }
+                distance?.let { "확인된 누적 주행거리는 " + "%,.0f".format(it) +
+                    "km야. 함께 관측한 거리는 " + "%,.0f".format(state.memory.sharedKm) + "km야." }
                     ?: "주행거리 데이터를 아직 확인하지 못했어."
-            listOf("성격", "누구", "어떤 차").any { it in message } -> {
-                val traits = PersonaEngine.expressedTraits(id.memory, current)
-                "지금의 나는 호기심 ${"%.1f".format(traits[1] * 100)}%, 친밀감 ${"%.1f".format(traits[2] * 100)}%야. ${PersonaEngine.moodLabel(persona)}. ${persona.line}"
-            }
             listOf("기분", "컨디션", "배고", "걱정", "괜찮").any { it in message } ->
-                "지금 기분은 ${PersonaEngine.moodLabel(persona)}. 에너지 부족 ${(persona.hunger * 100).toInt()}%, 걱정 ${(persona.concern * 100).toInt()}%야. ${persona.line}"
+                "지금 내 상태는 " + state.expression.headline + "이야. 에너지 부족 " +
+                    (mood.hunger * 100).toInt() + "%, 긴장 " +
+                    (mood.tension * 100).toInt() + "%. " + state.expression.utterance
+            listOf("기억", "추억", "경험").any { it in message } ->
+                if (state.memory.highlights.isEmpty()) "이제부터 우리만의 주행 경험을 기억할게."
+                else "기억나는 건 " + state.memory.highlights.last() + "야."
             listOf("안녕", "반가워").any { it in message } ->
-                "안녕! 반가워. ${persona.line}"
-            else -> persona.line
+                "안녕! 반가워. " + state.expression.utterance
+            else -> state.expression.utterance
         }
     }
 
@@ -513,7 +522,25 @@ class MainActivity : Activity() {
         sourceCard.addView(dataRow("EV Battery", latest.evBatteryLevel?.let { "수신 · ${it.toInt()}%" } ?: "미수신"))
         sourceCard.addView(gap(13))
         sourceCard.addView(dataRow("Vehicle identity", if (latest.vehicleKey != null) "암호화 식별값 확인" else "미수신"))
+        sourceCard.addView(gap(13))
+        sourceCard.addView(dataRow("실내 현재온도", latest.cabinTemperatureC?.let { "$it°C" } ?: "미수신"))
+        sourceCard.addView(gap(13))
+        sourceCard.addView(dataRow("공조 목표온도", latest.targetTemperatureC?.let { "$it°C" } ?: "미수신"))
+        sourceCard.addView(gap(13))
+        sourceCard.addView(dataRow("공조 전원", latest.hvacOn?.toString() ?: "미수신"))
+        sourceCard.addView(gap(13))
+        sourceCard.addView(dataRow("충전 여부", latest.charging?.toString() ?: "미수신"))
+        sourceCard.addView(gap(13))
+        sourceCard.addView(dataRow("주차 여부", latest.parked?.toString() ?: "미수신"))
         page.addView(sourceCard)
+        hpe?.let { state ->
+            page.addView(gap(14))
+            val evidence = card()
+            evidence.addView(label("HPE 계산 근거 · SDK / 초기 시드 구분", 15f, ink, true))
+            evidence.addView(gap(9))
+            evidence.addView(label(state.sources.joinToString("\n"), 12f, secondary))
+            page.addView(evidence)
+        }
         page.addView(gap(18))
         page.addView(label("개발자 로그", 20f, ink, true))
         page.addView(gap(10))
