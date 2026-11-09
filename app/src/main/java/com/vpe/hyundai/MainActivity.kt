@@ -2,200 +2,229 @@ package com.vpe.hyundai
 
 import android.app.Activity
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.view.Gravity
+import android.view.View
 import android.widget.*
 import java.util.Locale
 
-/** Voice synthesis intentionally excluded: only a deterministic voice blueprint is produced. */
+/** VPE onboarding and conversational dashboard. No fake SDK success states. */
 class MainActivity : Activity() {
-    private lateinit var pleos: PleosVehicleClient
+    private lateinit var sdk: PleosVehicleClient
     private lateinit var store: IdentityStore
-    private lateinit var status: TextView
-    private lateinit var output: TextView
+    private lateinit var page: LinearLayout
+    private lateinit var steps: TextView
+    private lateinit var headline: TextView
+    private lateinit var subtitle: TextView
+    private lateinit var detail: TextView
+    private lateinit var chat: LinearLayout
     private var identity: VpeIdentity? = null
-    private val values = linkedMapOf(
-        "차량 연식 (년)" to 5, "누적 주행거리 (천 km)" to 70,
-        "연료 (%)" to 65, "관리 점수" to 80,
-        "새로운 장소 비율 (%)" to 60, "장거리 비율 (%)" to 40
-    )
-    private fun snapshot() = VehicleSnapshot(
-        values.getValue("차량 연식 (년)").toDouble(),
-        values.getValue("누적 주행거리 (천 km)") * 1000.0,
-        values.getValue("연료 (%)").toDouble(),
-        values.getValue("관리 점수").toDouble(),
-        values.getValue("새로운 장소 비율 (%)") / 100.0,
-        values.getValue("장거리 비율 (%)") / 100.0
-    )
+    private var readings = VehicleReadings()
+    private var lastSnapshot: VehicleSnapshot? = null
+    private val navy = Color.rgb(12, 19, 34)
+    private val blue = Color.rgb(126, 171, 252)
+    private val white = Color.rgb(246, 249, 255)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        sdk = PleosVehicleClient(this)
         store = IdentityStore(this)
-        pleos = PleosVehicleClient(this)
-        identity = store.load()
-        val scroll = ScrollView(this)
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(36, 40, 36, 36)
-            setBackgroundColor(Color.rgb(247,249,252))
-        }
-        scroll.addView(root)
-        root.addView(TextView(this).apply {
-            text = "🚗 VPE · Vehicle Persona Engine"
-            textSize = 23f
-            setTextColor(Color.rgb(22,38,61))
-        })
-        root.addView(TextView(this).apply {
-            text = "최초 연동 → 데이터 분석 → 가중치 생성 → 성격·보이스 설계값 저장"
-            textSize = 14f
-        })
-        root.addView(TextView(this).apply {
-            text = "현재 데이터 입력은 테스트용 시뮬레이션입니다. SDK 조회는 별도 연결 테스트입니다."
-            textSize = 13f
-            setPadding(0,12,0,12)
-        })
-        for ((name, initial) in values.toMap()) {
-            val label = TextView(this).apply { text = "$name: $initial"; textSize = 15f }
-            root.addView(label)
-            root.addView(SeekBar(this).apply {
-                max = when(name) {
-                    "차량 연식 (년)" -> 25
-                    "누적 주행거리 (천 km)" -> 300
-                    else -> 100
-                }
-                progress = initial
-                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                    override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
-                        values[name] = progress
-                        label.text = "$name: $progress"
-                        if (::status.isInitialized) observeVehicleData()
-                    }
-                    override fun onStartTrackingTouch(bar: SeekBar?) {}
-                    override fun onStopTrackingTouch(bar: SeekBar?) {}
-                })
-            })
-        }
-        status = TextView(this).apply { textSize = 15f; setPadding(0,16,0,12) }
-        root.addView(status)
-        output = TextView(this).apply { textSize = 16f; setPadding(0,12,0,16) }
-        root.addView(output)
-        root.addView(Button(this).apply {
-            text = "VPE 최초 연동 · Identity 생성"
-            setOnClickListener {
-                if (identity != null) {
-                    status.text = "이미 생성된 Identity가 있어요. 초기화를 원하면 아래 버튼을 사용하세요."
-                } else {
-                    status.text = "VPE 연동 중… 차량 데이터를 분석하고 보이스 설계값을 생성하고 있습니다."
-                    // Prototype vehicle key; replace with a stable authorized vehicle identifier after SDK mapping.
-                    val created = IdentityEngine.generate("demo-vehicle", snapshot())
-                    store.save(created)
-                    identity = created
-                    status.text = "VPE Identity 생성 완료 · 기기에 저장됨"
-                }
-                render()
-            }
-        })
+        identity = store.load()?.takeIf { it.vehicleKey != "demo-vehicle" }
+        showDashboard()
+    }
 
-        root.addView(Button(this).apply {
-            text = "테스트 Identity 초기화"
-            setOnClickListener {
-                store.clear()
-                identity = null
-                status.text = "테스트 Identity 삭제 완료"
-                render()
-            }
+    private fun panel(color: Int = Color.rgb(20, 30, 49), radius: Float = 24f): GradientDrawable =
+        GradientDrawable().apply { setColor(color); cornerRadius = radius * resources.displayMetrics.density }
+
+    private fun label(value: String, size: Float, color: Int = white, bold: Boolean = false): TextView =
+        TextView(this).apply {
+            text = value; textSize = size; setTextColor(color)
+            if (bold) setTypeface(null, Typeface.BOLD)
+            setPadding(0, 7, 0, 7)
+        }
+
+    private fun action(title: String, callback: () -> Unit): Button =
+        Button(this).apply {
+            text = title
+            textSize = 15f
+            isAllCaps = false
+            setTextColor(navy)
+            background = panel(white, 28f)
+            setOnClickListener { callback() }
+        }
+
+    private fun addSpace(height: Int = 22) {
+        page.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(1, (height * resources.displayMetrics.density).toInt())
         })
-        root.addView(Button(this).apply {
-            text = "Pleos SDK 연결 · 운전석 도어 조회 테스트"
+    }
+
+    private fun showDashboard() {
+        val scroll = ScrollView(this).apply { setBackgroundColor(navy); fillViewport = true }
+        page = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = (24 * resources.displayMetrics.density).toInt()
+            setPadding(p, p, p, p)
+        }
+        scroll.addView(page)
+        setContentView(scroll)
+
+        page.addView(label("VPE  /  VEHICLE PERSONA ENGINE", 13f, blue, true))
+        addSpace(26)
+        page.addView(label("◉  VPE INITIALIZATION", 14f, blue, true))
+        addSpace(36)
+        page.addView(label("▏▎▍▌▋▊▉▋▌▍▎▏", 28f, blue).apply { gravity = Gravity.CENTER })
+        addSpace(36)
+        headline = label(if (identity == null) "VPE 연동 준비" else "나의 차량 페르소나", 27f, white, true)
+            .apply { gravity = Gravity.CENTER }
+        page.addView(headline)
+        subtitle = label("차량 데이터를 안전하게 불러옵니다.", 15f, Color.LTGRAY)
+            .apply { gravity = Gravity.CENTER }
+        page.addView(subtitle)
+        addSpace(32)
+        steps = label("", 15f)
+        page.addView(steps)
+        addSpace(20)
+        page.addView(action("차량 데이터 연결 · 분석 시작") { connect() })
+        addSpace(14)
+        detail = label("실제 SDK 응답을 기다리는 중입니다.", 12f, Color.LTGRAY)
+        page.addView(detail)
+        addSpace(25)
+        page.addView(label("VPE  /  CONVERSATION", 13f, blue, true))
+        addSpace(8)
+        chat = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(18, 18, 18, 18)
+            background = panel()
+        }
+        page.addView(chat)
+        addMessage("VPE", "안녕! 차량 연결이 완료되면 내 성격과 상태를 여기서 이야기할 수 있어.")
+        addSpace(12)
+        val inputRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val input = EditText(this).apply {
+            hint = "VPE에게 메시지 보내기"
+            setHintTextColor(Color.GRAY)
+            setTextColor(white)
+            textSize = 14f
+            setSingleLine(true)
+            background = panel()
+            setPadding(16, 8, 16, 8)
+        }
+        inputRow.addView(input, LinearLayout.LayoutParams(0, -2, 1f))
+        inputRow.addView(Button(this).apply {
+            text = "전송"; isAllCaps = false
             setOnClickListener {
-                status.text = "SDK 연결 확인 중…"
-                pleos.readDriverDoor { message -> runOnUiThread { status.text = message } }
-            }
-        })
-        root.addView(Button(this).apply {
-            text = "Pleos SDK 실제 차량 데이터 조회"
-            setOnClickListener {
-                status.text = "SDK 차량 데이터 조회 중…"
-                val lines = mutableListOf<String>()
-                pleos.inspectPersonaSources { message ->
-                    runOnUiThread {
-                        lines.add(message)
-                        status.text = lines.takeLast(15).joinToString("\\n")
-                    }
+                val message = input.text.toString().trim()
+                if (message.isNotEmpty()) {
+                    addMessage("나", message)
+                    input.setText("")
+                    respond(message)
                 }
             }
         })
-        setContentView(scroll)
-        status.text = if (identity == null) "최초 Identity 생성 대기 중" else "저장된 VPE Identity 복원 완료"
-        render()
+        page.addView(inputRow)
+        addSpace(24)
+        page.addView(label("개발자 진단", 14f, blue, true))
+        page.addView(action("SDK 조회 로그 다시 확인") { connect() })
+        addSpace(8)
+        page.addView(label("보이스 오디오/STT 및 LLM 대화는 아직 연결되지 않았습니다. 현재 채팅은 차량 상태 기반 규칙 응답입니다.", 12f, Color.LTGRAY))
+        refresh()
     }
-    /** Called whenever an input changes; same method can receive mapped SDK snapshots later. */
-    /** Entry point for verified SDK values. Unknown values retain their previous snapshot.
-     * Call this only after a real successful SDK property read.
-     */
-    private fun applySdkReadings(readings: VehicleReadings) {
-        val current = identity ?: return
-        val merged = VehicleDataMapper.merge(
-            current.lastLearned, readings, java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
-        )
-        val updated = IdentityEngine.evolve(current, merged)
-        if (updated !== current) {
-            identity = updated
-            store.save(updated)
-            status.text = "SDK 데이터 기반 성격 학습 완료"
-        } else {
-            status.text = "SDK 데이터 확인 · 장기 학습 기준 미충족"
-        }
-        render()
+
+    private fun addMessage(sender: String, message: String) {
+        chat.addView(label("$sender  ·  $message", 14f).apply {
+            setPadding(14, 10, 14, 10)
+            background = panel(if (sender == "나") Color.rgb(34, 54, 84) else Color.rgb(23, 38, 61), 14f)
+        })
+        chat.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(1, 9)
+        })
     }
-    private fun observeVehicleData() {
-        val current = identity ?: return
-        val updated = IdentityEngine.evolve(current, snapshot())
-        if (updated !== current) {
-            identity = updated
-            store.save(updated)
-            status.text = "새로운 운행 경험 감지 · 성격 자동 성장 (${updated.learningEvents}회)"
-        } else {
-            status.text = "차량 상태 반영 · 새로운 장기 학습 이벤트 없음"
-        }
-        render()
-    }
-    private fun render() {
-        if (!::output.isInitialized) return
+
+    private fun respond(message: String) {
         val id = identity
         if (id == null) {
-            output.text = "차량 데이터에 따라 고유 성격과 보이스 정체성을 생성합니다."
+            addMessage("VPE", "아직 실제 차량 정보가 연결되지 않았어. 먼저 차량 데이터 연결을 진행해 줘.")
             return
         }
-        fun pct(d: Double) = (d * 100).toInt()
-        val p = id.baseline
-        val b = id.voiceBlueprint
-        val current = PersonaEngine.calculate(snapshot())
-        output.text = """
-            [최초 생성된 성격]
-            활발함 ${pct(p.energy)}% · 호기심 ${pct(p.curiosity)}%
-            친밀감 ${pct(p.warmth)}% · 자신감 ${pct(p.confidence)}%
-            표현력 ${pct(p.expressiveness)}%
-
-            [현재 장기 성격 기억 · 자동 학습 ${id.learningEvents}회]
-            ${id.memory.traits.joinToString(" / ") { "%.2f".format(Locale.US,it) }}
-
-            [최초 생성된 기본 보이스 설계값]
-            ${b.ageGroup} · ${b.presentation}
-            성별 표현 ${pct(b.genderExpression)}%
-            음높이 ${"%.2f".format(Locale.US,b.pitch)}
-            공명 ${"%.2f".format(Locale.US,b.resonance)}
-            부드러움 ${pct(b.softness)}%
-            속도 ${"%.2f".format(Locale.US,b.speechRate)}
-
-            [현재 단기 감정]
-            배고픔 ${pct(current.hunger)}% · 걱정 ${pct(current.concern)}%
-            💬 ${current.line}
-
-            보이스 오디오 생성: 미연동
-            데이터 출처: 수동 시뮬레이션
-        """.trimIndent()
+        val v = lastSnapshot ?: id.lastLearned
+        val p = PersonaEngine.calculate(v)
+        val response = when {
+            listOf("연료", "기름", "배터리").any { it in message } ->
+                if (readings.fuelPercent != null) "현재 연료량은 ${readings.fuelPercent?.toInt()}%야. ${p.line}"
+                else "연료 데이터가 아직 확인되지 않았어."
+            listOf("거리", "주행").any { it in message } ->
+                if (readings.odometerKm != null) "확인된 누적 주행거리는 ${readings.odometerKm?.toInt()}km야."
+                else "주행거리 데이터를 아직 확인하지 못했어."
+            listOf("성격", "누구").any { it in message } ->
+                "내 호기심은 ${(id.memory.traits[1] * 100).toInt()}%, 친밀감은 ${(id.memory.traits[2] * 100).toInt()}%야."
+            else -> p.line
+        }
+        addMessage("VPE", response)
     }
+
+    private fun connect() {
+        headline.text = "VPE 연동 중"
+        subtitle.text = "Pleos 차량 데이터를 확인하고 있어요."
+        steps.text = "◉ 차량 데이터 연결\n○ 데이터 정규화 및 가중치 분석\n○ 기본 성격 및 보이스 생성\n○ VPE Identity 생성 완료"
+        detail.text = "SDK 응답 대기 중…"
+        val logs = mutableListOf<String>()
+        sdk.readVehicleData { message, partial ->
+            runOnUiThread {
+                logs.add(message)
+                detail.text = logs.takeLast(8).joinToString("\n")
+                if (partial != null) {
+                    readings = readings.copy(
+                        odometerKm = partial.odometerKm ?: readings.odometerKm,
+                        fuelPercent = partial.fuelPercent ?: readings.fuelPercent,
+                        modelYear = partial.modelYear ?: readings.modelYear
+                    )
+                    applyReadings()
+                }
+            }
+        }
+    }
+
+    private fun applyReadings() {
+        // Never create a persona from absent required measurements.
+        val km = readings.odometerKm
+        val fuel = readings.fuelPercent
+        if (km == null || fuel == null) {
+            subtitle.text = "SDK 연결 중 · 주행거리와 연료값 확인 대기"
+            return
+        }
+        val prior = identity
+        // Unavailable history-derived features are neutral placeholders, explicitly not SDK facts.
+        val seed = VehicleSnapshot(0.0, km, fuel, 50.0, 0.5, 0.5)
+        val snap = if (prior == null) seed else VehicleDataMapper.merge(
+            prior.lastLearned, readings, java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+        )
+        lastSnapshot = snap
+        if (prior == null) {
+            identity = IdentityEngine.generate("pleos-sdk-observed", snap)
+        } else {
+            identity = IdentityEngine.evolve(prior, snap)
+        }
+        identity?.let(store::save)
+        refresh()
+    }
+
+    private fun refresh() {
+        val id = identity
+        if (id == null) {
+            steps.text = "○ 차량 데이터 연결\n○ 데이터 정규화 및 가중치 분석\n○ 기본 성격 및 보이스 생성\n○ VPE Identity 생성 완료"
+        } else {
+            headline.text = "VPE Identity 생성 완료"
+            subtitle.text = "차량의 고유 페르소나가 저장되었어요."
+            steps.text = "● 차량 데이터 연결\n● 데이터 정규화 및 가중치 분석\n● 기본 성격 및 보이스 생성\n● VPE Identity 생성 완료"
+            addMessage("VPE", "반가워! 나는 ${id.voiceBlueprint.ageGroup} ${id.voiceBlueprint.presentation} 보이스 프로필을 가진 VPE야. ${PersonaEngine.calculate(lastSnapshot ?: id.lastLearned).line}")
+        }
+    }
+
     override fun onDestroy() {
-        pleos.release()
+        sdk.release()
         super.onDestroy()
     }
 }
