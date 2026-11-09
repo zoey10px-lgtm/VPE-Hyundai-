@@ -162,7 +162,7 @@ jobs:
           import re, subprocess, xml.etree.ElementTree as ET
           root=ET.parse('/tmp/pleos-vpe-ui.xml').getroot()
           for node in root.iter():
-              if 'Pleos 차량 연결하기' in node.attrib.get('text',''):
+              if any(label in node.attrib.get('text','') for label in ('Pleos 차량 연결하기', '차량 데이터 새로고침', '차량 접근 권한 진단')):
                   vals=list(map(int,re.findall(r'\d+',node.attrib['bounds'])))
                   subprocess.check_call(['adb','shell','input','tap',str((vals[0]+vals[2])//2),str((vals[1]+vals[3])//2)])
                   break
@@ -172,8 +172,8 @@ jobs:
           sleep 15
           adb logcat -d -s VPE_PLEOS:I > /tmp/vpe-pleos-real-sdk.log
           cat /tmp/vpe-pleos-real-sdk.log
-          if ! grep -Eq 'ODO_OK|FUEL_OK|EV_OK|VIN_OK' /tmp/vpe-pleos-real-sdk.log; then
-            echo "::error::No successful vehicle property response from real Pleos Vehicle Service."
+          if ! grep -Eq 'ODO_OK: km=[0-9]' /tmp/vpe-pleos-real-sdk.log; then
+            echo "::error::No numeric Odometer response from real Pleos Vehicle Service. See callback diagnostics."
             exit 1
           fi
       - uses: actions/upload-artifact@v4
