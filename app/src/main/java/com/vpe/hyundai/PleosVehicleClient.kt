@@ -3,6 +3,9 @@ package com.vpe.hyundai
 import android.content.Context
 import ai.pleos.playground.vehicle.Vehicle
 import ai.pleos.playground.vehicle.api.model.capability.AccessType
+import ai.pleos.playground.vehicle.listener.DistanceDrivenListener
+import ai.pleos.playground.vehicle.listener.FuelPercentListener
+import android.util.Log
 import java.security.MessageDigest
 
 /** Typed, read-only Pleos Vehicle SDK 2.3.2 integration, confirmed from actual AAR. */
@@ -10,6 +13,33 @@ class PleosVehicleClient(context: Context) {
     private val appContext = context.applicationContext
     private val vehicle = Vehicle(appContext)
     private var initialized = false
+    @Volatile private var distanceRegistered = false
+    @Volatile private var fuelRegistered = false
+    @Volatile private var listenerReporter: ((String, VehicleReadings?) -> Unit)? = null
+
+    private val distanceListener = object : DistanceDrivenListener {
+        override fun onDistanceDrivenUpdated(value: Float?) {
+            val km = value?.toDouble()
+            if (km != null && km.isFinite() && km >= 0.0) {
+                emitUpdate("ODO_UPDATE: 누적 주행거리 변경", VehicleReadings(odometerKm = km))
+            }
+        }
+    }
+
+    private val fuelListener = object : FuelPercentListener {
+        override fun onFuelPercentUpdated(value: Int?) {
+            val percent = value?.toDouble()
+            if (percent != null && percent in 0.0..100.0) {
+                emitUpdate("FUEL_UPDATE: 연료 비율 변경", VehicleReadings(fuelPercent = percent))
+            }
+        }
+    }
+
+    private fun emitUpdate(message: String, reading: VehicleReadings?) {
+        Log.i("VPE_PLEOS", message)
+        listenerReporter?.invoke(message, reading)
+    }
+
 
     @Synchronized private fun ready() {
         if (!initialized) {
@@ -19,16 +49,21 @@ class PleosVehicleClient(context: Context) {
     }
 
     fun readVehicleData(onReading: (String, VehicleReadings?) -> Unit) {
+        listenerReporter = onReading
+        fun report(message: String, readings: VehicleReadings?) {
+            Log.i("VPE_PLEOS", message)
+            onReading(message, readings)
+        }
         val environment = VehicleEnvironmentInspector.inspect(appContext)
         if (!environment.readyForVehicleRequest) {
-            onReading("ENVIRONMENT_ERROR: " + environment.code + ": " + environment.summary, null)
+            report("ENVIRONMENT_ERROR: " + environment.code + ": " + environment.summary, null)
             return
         }
         try {
             ready()
-            onReading("SDK initialize() 호출 완료 · Vehicle Service 통신 성공은 데이터 응답으로 확인", null)
+            report("SDK initialize() 호출 완료 · Vehicle Service 통신 성공은 데이터 응답으로 확인", null)
         } catch (error: Exception) {
-            onReading("SERVICE_ERROR: ${safeMessage(error)}", null)
+            report("SERVICE_ERROR: ${safeMessage(error)}", null)
             return
         }
 
@@ -36,58 +71,76 @@ class PleosVehicleClient(context: Context) {
             vehicle.getOdometer().checkCurrentDistanceDrivenCapabilities(
                 onComplete = { capability ->
                     if (capability.accessType == AccessType.NONE) {
-                        onReading("ODO_UNSUPPORTED: 주행거리 읽기 미지원", null)
+                        report("ODO_UNSUPPORTED: 주행거리 읽기 미지원", null)
                     } else {
+                        if (!distanceRegistered) {
+                            try {
+                                vehicle.getOdometer().registerDistanceDriven(distanceListener)
+                                distanceRegistered = true
+                                report("ODO_LISTENER_READY: 주행거리 변경 구독 등록", null)
+                            } catch (error: Exception) {
+                                report("ODO_LISTENER_ERROR: " + safeMessage(error), null)
+                            }
+                        }
                         try {
                             vehicle.getOdometer().getCurrentDistanceDriven(
                                 onComplete = { distance ->
                                     val km = distance?.toDouble()
                                     if (km != null && km.isFinite() && km >= 0.0) {
-                                        onReading("ODO_OK: 누적 주행거리 수신", VehicleReadings(odometerKm = km))
+                                        report("ODO_OK: 누적 주행거리 수신", VehicleReadings(odometerKm = km))
                                     } else {
-                                        onReading("ODO_EMPTY: 주행거리 값 없음", null)
+                                        report("ODO_EMPTY: 주행거리 값 없음", null)
                                     }
                                 },
-                                onFailed = { error -> onReading("ODO_ERROR: " + safeMessage(error), null) }
+                                onFailed = { error -> report("ODO_ERROR: " + safeMessage(error), null) }
                             )
                         } catch (error: Exception) {
-                            onReading("ODO_ERROR: " + safeMessage(error), null)
+                            report("ODO_ERROR: " + safeMessage(error), null)
                         }
                     }
                 },
-                onFailed = { error -> onReading("ODO_CAP_ERROR: " + safeMessage(error), null) }
+                onFailed = { error -> report("ODO_CAP_ERROR: " + safeMessage(error), null) }
             )
         } catch (error: Exception) {
-            onReading("ODO_CAP_ERROR: " + safeMessage(error), null)
+            report("ODO_CAP_ERROR: " + safeMessage(error), null)
         }
 
         try {
             vehicle.getFuel().checkFuelPercentCapabilities(
                 onComplete = { capability ->
                     if (capability.accessType == AccessType.NONE) {
-                        onReading("FUEL_UNSUPPORTED: 연료 비율 읽기 미지원", null)
+                        report("FUEL_UNSUPPORTED: 연료 비율 읽기 미지원", null)
                     } else {
+                        if (!fuelRegistered) {
+                            try {
+                                vehicle.getFuel().registerFuelPercent(fuelListener)
+                                fuelRegistered = true
+                                report("FUEL_LISTENER_READY: 연료 변경 구독 등록", null)
+                            } catch (error: Exception) {
+                                report("FUEL_LISTENER_ERROR: " + safeMessage(error), null)
+                            }
+                        }
                         try {
                             vehicle.getFuel().getFuelPercent(
                                 onComplete = { percent ->
                                     val value = percent?.toDouble()
                                     if (value != null && value in 0.0..100.0) {
-                                        onReading("FUEL_OK: 연료 비율 수신", VehicleReadings(fuelPercent = value))
+                                        report("FUEL_OK: 연료 비율 수신", VehicleReadings(fuelPercent = value))
                                     } else {
-                                        onReading("FUEL_EMPTY: 연료 비율 확인 불가", null)
+                                        report("FUEL_EMPTY: 연료 비율 확인 불가", null)
                                     }
                                 },
-                                onFailed = { error -> onReading("FUEL_ERROR: " + safeMessage(error), null) }
+                                onFailed = { error -> report("FUEL_ERROR: " + safeMessage(error), null) }
                             )
                         } catch (error: Exception) {
-                            onReading("FUEL_ERROR: " + safeMessage(error), null)
+                            report("FUEL_ERROR: " + safeMessage(error), null)
                         }
                     }
                 },
-                onFailed = { error -> onReading("FUEL_CAP_ERROR: " + safeMessage(error), null) }
+                onFailed = { error -> report("FUEL_CAP_ERROR: " + safeMessage(error), null) }
             )
         } catch (error: Exception) {
-            onReading("FUEL_CAP_ERROR: " + safeMessage(error), null)
+            report("FUEL_CAP_ERROR: " + safeMessage(error), null)
         }
 
         try {
@@ -95,30 +148,30 @@ class PleosVehicleClient(context: Context) {
                 onComplete = { level ->
                     val value = level?.toDouble()
                     if (value != null && value > 1.0 && value <= 100.0) {
-                        onReading("EV_OK: 배터리 잔량 수신", VehicleReadings(evBatteryLevel = value))
+                        report("EV_OK: 배터리 잔량 수신", VehicleReadings(evBatteryLevel = value))
                     } else {
-                        onReading("EV_INFO: 배터리 원시값 ${value ?: "없음"} (단위 검증 필요)", null)
+                        report("EV_INFO: 배터리 원시값 ${value ?: "없음"} (단위 검증 필요)", null)
                     }
                 },
-                onFailed = { error -> onReading("EV_ERROR: ${safeMessage(error)}", null) }
+                onFailed = { error -> report("EV_ERROR: ${safeMessage(error)}", null) }
             )
         } catch (error: Exception) {
-            onReading("EV_ERROR: ${safeMessage(error)}", null)
+            report("EV_ERROR: ${safeMessage(error)}", null)
         }
 
         try {
             vehicle.getCarInfo().getVINInfo(
                 onComplete = { vin ->
                     if (vin.isNullOrBlank()) {
-                        onReading("VIN_EMPTY: 차량 고유 식별자 미제공", null)
+                        report("VIN_EMPTY: 차량 고유 식별자 미제공", null)
                     } else {
-                        onReading("VIN_OK: 차량 ID 확인 (원문 비저장)", VehicleReadings(vehicleKey = fingerprint(vin)))
+                        report("VIN_OK: 차량 ID 확인 (원문 비저장)", VehicleReadings(vehicleKey = fingerprint(vin)))
                     }
                 },
-                onFailed = { error -> onReading("VIN_ERROR: ${safeMessage(error)}", null) }
+                onFailed = { error -> report("VIN_ERROR: ${safeMessage(error)}", null) }
             )
         } catch (error: Exception) {
-            onReading("VIN_ERROR: ${safeMessage(error)}", null)
+            report("VIN_ERROR: ${safeMessage(error)}", null)
         }
     }
 
@@ -139,7 +192,16 @@ class PleosVehicleClient(context: Context) {
     }
 
     @Synchronized fun release() {
+        listenerReporter = null
         if (initialized) {
+            if (distanceRegistered) {
+                runCatching { vehicle.getOdometer().unregisterDistanceDriven(distanceListener) }
+                distanceRegistered = false
+            }
+            if (fuelRegistered) {
+                runCatching { vehicle.getFuel().unregisterFuelPercent(fuelListener) }
+                fuelRegistered = false
+            }
             vehicle.release()
             initialized = false
         }
