@@ -174,7 +174,15 @@ class MainActivity : Activity() {
         sdk.readVehicleData { message, partial ->
             runOnUiThread {
                 logs.add(message)
-                detail.text = logs.takeLast(8).joinToString("\n")
+                detail.text = if (message.contains("SecurityException") || message.contains("need Permission")) {
+                    headline.text = "차량 연결 확인 필요"
+                    subtitle.text = "차량 데이터 접근 권한이 거부됐어요."
+                    "Pleos 차량 환경과 앱 권한을 확인해 주세요."
+                } else if (partial == null) {
+                    "SDK 진단: " + message.take(100)
+                } else {
+                    "차량 데이터 응답 수신"
+                }
                 if (partial != null) {
                     readings = readings.copy(
                         odometerKm = partial.odometerKm ?: readings.odometerKm,
