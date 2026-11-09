@@ -6,6 +6,11 @@ import ai.pleos.playground.vehicle.api.model.capability.AccessType
 import ai.pleos.playground.vehicle.listener.DistanceDrivenListener
 import ai.pleos.playground.vehicle.listener.FuelPercentListener
 import android.util.Log
+import ai.pleos.playground.vehicle.api.model.area.SeatArea
+import ai.pleos.playground.vehicle.constant.area.SeatValue
+import ai.pleos.playground.vehicle.constant.unit.TemperatureUnit
+import ai.pleos.playground.vehicle.listener.HvacTemperatureListener
+import ai.pleos.playground.vehicle.listener.HvacPowerStateListener
 import java.security.MessageDigest
 import ai.pleos.playground.vehicle.listener.EvBatteryStateOfChargeListener
 
@@ -17,6 +22,39 @@ class PleosVehicleClient(context: Context) {
     @Volatile private var distanceRegistered = false
     @Volatile private var fuelRegistered = false
     @Volatile private var evSocRegistered = false
+    private val driverSeat = SeatArea(SeatValue.ROW_1_LEFT)
+    @Volatile private var cabinListenerRegistered = false
+    @Volatile private var targetListenerRegistered = false
+    @Volatile private var hvacPowerListenerRegistered = false
+
+    private val cabinListener = object : HvacTemperatureListener {
+        override fun onFailed(error: Exception) {
+            emitUpdate("CABIN_LISTENER_ERROR: " + safeMessage(error), null)
+        }
+        override fun onHvacTemperatureUpdated(value: Float?) {
+            val c = value?.toDouble()
+            if (c != null && c.isFinite() && c in -30.0..60.0)
+                emitUpdate("CABIN_UPDATE: c=" + c, VehicleReadings(cabinTemperatureC = c))
+        }
+    }
+    private val targetListener = object : HvacTemperatureListener {
+        override fun onFailed(error: Exception) {
+            emitUpdate("TARGET_LISTENER_ERROR: " + safeMessage(error), null)
+        }
+        override fun onHvacTemperatureUpdated(value: Float?) {
+            val c = value?.toDouble()
+            if (c != null && c.isFinite() && c in 14.0..35.0)
+                emitUpdate("TARGET_UPDATE: c=" + c, VehicleReadings(targetTemperatureC = c))
+        }
+    }
+    private val hvacListener = object : HvacPowerStateListener {
+        override fun onFailed(error: Exception) {
+            emitUpdate("HVAC_LISTENER_ERROR: " + safeMessage(error), null)
+        }
+        override fun onHvacPowerStateUpdated(value: Boolean?) {
+            value?.let { emitUpdate("HVAC_UPDATE: on=" + it, VehicleReadings(hvacOn = it)) }
+        }
+    }
     @Volatile private var listenerReporter: ((String, VehicleReadings?) -> Unit)? = null
 
     private val distanceListener = object : DistanceDrivenListener {
@@ -198,6 +236,86 @@ class PleosVehicleClient(context: Context) {
             report("EV_CAP_ERROR: " + safeMessage(error), null)
         }
 
+        // Read-only climate context; each getter is independent. The SDK callback
+        // is the only source of truth. A missing/unsupported reading remains null.
+        try {
+            val climate = vehicle.getHVAC()
+            try {
+                if (!cabinListenerRegistered) {
+                    climate.registerHvacTemperatureCurrent(driverSeat, cabinListener)
+                    cabinListenerRegistered = true
+                }
+            } catch (e: Exception) {
+                report("CABIN_LISTENER_ERROR: " + safeMessage(e), null)
+            }
+            try {
+                if (!targetListenerRegistered) {
+                    climate.registerHvacTemperature(driverSeat, targetListener)
+                    targetListenerRegistered = true
+                }
+            } catch (e: Exception) {
+                report("TARGET_LISTENER_ERROR: " + safeMessage(e), null)
+            }
+            try {
+                if (!hvacPowerListenerRegistered) {
+                    climate.registerHvacPowerState(driverSeat, hvacListener)
+                    hvacPowerListenerRegistered = true
+                }
+            } catch (e: Exception) {
+                report("HVAC_LISTENER_ERROR: " + safeMessage(e), null)
+            }
+            try {
+                climate.getHvacTemperatureCurrent(driverSeat, TemperatureUnit.CELSIUS,
+                    onComplete = { value ->
+                        val c = value?.toDouble()
+                        if (c != null && c.isFinite() && c in -30.0..60.0)
+                            report("CABIN_OK: c=" + c, VehicleReadings(cabinTemperatureC = c))
+                        else report("CABIN_EMPTY: 실제 실내온도 미제공", null)
+                    },
+                    onFailed = { e -> report("CABIN_ERROR: " + safeMessage(e), null) }
+                )
+            } catch (e: Exception) {
+                report("CABIN_ERROR: " + safeMessage(e), null)
+            }
+            try {
+                climate.getHvacTemperature(driverSeat, TemperatureUnit.CELSIUS,
+                    onComplete = { value ->
+                        val c = value?.toDouble()
+                        if (c != null && c.isFinite() && c in 14.0..35.0)
+                            report("TARGET_OK: c=" + c, VehicleReadings(targetTemperatureC = c))
+                        else report("TARGET_EMPTY: 목표 온도 미제공", null)
+                    },
+                    onFailed = { e -> report("TARGET_ERROR: " + safeMessage(e), null) }
+                )
+            } catch (e: Exception) {
+                report("TARGET_ERROR: " + safeMessage(e), null)
+            }
+            try {
+                climate.getHvacPowerState(driverSeat,
+                    onComplete = { value ->
+                        if (value == null) report("HVAC_EMPTY: 공조 전원 미제공",null)
+                        else report("HVAC_OK: on=" + value, VehicleReadings(hvacOn = value))
+                    },
+                    onFailed = { e -> report("HVAC_ERROR: " + safeMessage(e), null) }
+                )
+            } catch (e: Exception) {
+                report("HVAC_ERROR: " + safeMessage(e), null)
+            }
+        } catch (e: Exception) {
+            report("HVAC_DOMAIN_ERROR: " + safeMessage(e), null)
+        }
+        try {
+            vehicle.getEvBattery().getEvChargeSwitchState(
+                onComplete = { value ->
+                    if (value == null) report("CHARGE_EMPTY: 충전 스위치 미제공", null)
+                    else report("CHARGE_SWITCH_OK: on=" + value, VehicleReadings(charging = value))
+                },
+                onFailed = { e -> report("CHARGE_SWITCH_ERROR: " + safeMessage(e), null) }
+            )
+        } catch (e: Exception) {
+            report("CHARGE_SWITCH_ERROR: " + safeMessage(e), null)
+        }
+
         // VIN is preferred. If unavailable, try the SDK's verified CRN getter.
         // Neither raw identifier is written to logs or storage.
         fun readCRNFallback() {
@@ -270,6 +388,18 @@ class PleosVehicleClient(context: Context) {
             if (evSocRegistered) {
                 runCatching { vehicle.getEvBattery().unregisterEvBatteryStateOfCharge(evSocListener) }
                 evSocRegistered = false
+            }
+            if (cabinListenerRegistered) {
+                runCatching { vehicle.getHVAC().unregisterHvacTemperatureCurrent(driverSeat,cabinListener) }
+                cabinListenerRegistered = false
+            }
+            if (targetListenerRegistered) {
+                runCatching { vehicle.getHVAC().unregisterHvacTemperature(driverSeat,targetListener) }
+                targetListenerRegistered = false
+            }
+            if (hvacPowerListenerRegistered) {
+                runCatching { vehicle.getHVAC().unregisterHvacPowerState(driverSeat,hvacListener) }
+                hvacPowerListenerRegistered = false
             }
             vehicle.release()
             initialized = false
