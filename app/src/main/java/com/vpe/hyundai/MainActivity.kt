@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.content.Intent
 import android.net.Uri
 import android.graphics.Color
@@ -75,6 +76,13 @@ class MainActivity : Activity() {
         loadMessages()
         if (messages.isEmpty()) messages.add("VPE" to "안녕! 내 차의 데이터를 연결하면 우리만의 성격을 만들어 볼 수 있어. 먼저 홈에서 연결해 줘.")
         render("home")
+        // Debug-only integration test hook: launch the real SDK request without UI
+        // automation, which is unavailable in some Automotive headless environments.
+        // No vehicle values are injected or simulated by this hook.
+        val debugging = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (debugging && intent?.getBooleanExtra("vpe_test_sdk_connect", false) == true) {
+            mainHandler.post { connectVehicle() }
+        }
     }
 
     private fun type(size: Float, bold: Boolean = false): Typeface =
