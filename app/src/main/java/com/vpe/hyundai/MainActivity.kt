@@ -66,6 +66,7 @@ class MainActivity : Activity() {
                     override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
                         values[name] = progress
                         label.text = "$name: $progress"
+                        if (::status.isInitialized) observeVehicleData()
                     }
                     override fun onStartTrackingTouch(bar: SeekBar?) {}
                     override fun onStopTrackingTouch(bar: SeekBar?) {}
@@ -92,19 +93,7 @@ class MainActivity : Activity() {
                 render()
             }
         })
-        root.addView(Button(this).apply {
-            text = "운행 경험 반영 · 장기 성격 성장"
-            setOnClickListener {
-                val current = identity
-                if (current == null) {
-                    status.text = "먼저 최초 Identity를 생성하세요."
-                } else {
-                    identity = IdentityEngine.evolve(current, snapshot()).also(store::save)
-                    status.text = "장기 성격이 갱신됐어요. 기본 보이스 정체성은 유지됩니다."
-                }
-                render()
-            }
-        })
+
         root.addView(Button(this).apply {
             text = "테스트 Identity 초기화"
             setOnClickListener {
@@ -125,6 +114,19 @@ class MainActivity : Activity() {
         status.text = if (identity == null) "최초 Identity 생성 대기 중" else "저장된 VPE Identity 복원 완료"
         render()
     }
+    /** Called whenever an input changes; same method can receive mapped SDK snapshots later. */
+    private fun observeVehicleData() {
+        val current = identity ?: return
+        val updated = IdentityEngine.evolve(current, snapshot())
+        if (updated !== current) {
+            identity = updated
+            store.save(updated)
+            status.text = "새로운 운행 경험 감지 · 성격 자동 성장 (${updated.learningEvents}회)"
+        } else {
+            status.text = "차량 상태 반영 · 새로운 장기 학습 이벤트 없음"
+        }
+        render()
+    }
     private fun render() {
         if (!::output.isInitialized) return
         val id = identity
@@ -142,7 +144,7 @@ class MainActivity : Activity() {
             친밀감 ${pct(p.warmth)}% · 자신감 ${pct(p.confidence)}%
             표현력 ${pct(p.expressiveness)}%
 
-            [현재 장기 성격 기억]
+            [현재 장기 성격 기억 · 자동 학습 ${id.learningEvents}회]
             ${id.memory.traits.joinToString(" / ") { "%.2f".format(Locale.US,it) }}
 
             [최초 생성된 기본 보이스 설계값]
