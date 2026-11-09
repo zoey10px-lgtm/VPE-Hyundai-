@@ -108,13 +108,32 @@ jobs:
           sudo sh -c 'echo KERNEL=="kvm", GROUP="kvm", MODE="0666" > /etc/udev/rules.d/99-kvm4all.rules'
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-          "$ANDROID_HOME/emulator/emulator" -avd "VPE_Pleos_Connect" -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -memory 4096 > /tmp/pleos-emulator.log 2>&1 &
-          adb wait-for-device
-          for i in $(seq 1 120); do
-            [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1" ] && break
+          echo "Starting Pleos system image with verbose emulator log..."
+          "$ANDROID_HOME/emulator/emulator" -avd "VPE_Pleos_Connect" -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -memory 4096 -verbose > /tmp/pleos-emulator.log 2>&1 &
+          EMULATOR_PID=$!
+          if ! timeout 150 adb wait-for-device; then
+            echo "::error::Pleos AVD did not appear in adb within 150 seconds"
+            tail -120 /tmp/pleos-emulator.log || true
+            exit 1
+          fi
+          BOOTED=0
+          for i in $(seq 1 48); do
+            if [ "$(timeout 10 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
+              BOOTED=1
+              break
+            fi
+            if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
+              echo "::error::Pleos emulator process terminated during boot"
+              break
+            fi
             sleep 5
           done
-          [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1" ]
+          if [ "$BOOTED" -ne 1 ]; then
+            echo "::error::Pleos AVD did not finish booting. Inspect pleos-emulator.log artifact."
+            adb devices -l || true
+            tail -120 /tmp/pleos-emulator.log || true
+            exit 1
+          fi
           echo "Pleos emulator boot completed"
           adb shell pm list features | tee /tmp/pleos-features.txt
           grep -q 'android.hardware.type.automotive' /tmp/pleos-features.txt
