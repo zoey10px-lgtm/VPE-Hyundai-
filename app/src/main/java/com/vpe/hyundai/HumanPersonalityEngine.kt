@@ -146,8 +146,11 @@ object HumanPersonalityEngine {
         else old.highlights
         return old.copy(
             firstKm = first,
-            lastKm = odometer ?: last,
-            sharedKm = old.sharedKm + delta,
+            // Keep the learning anchor until a meaningful event; otherwise
+            // 1 km periodic callbacks would prevent ever reaching 100 km.
+            lastKm = if (last == null || changed) (odometer ?: last) else last,
+            sharedKm = if (first != null && odometer != null && odometer >= first)
+                max(old.sharedKm, odometer - first) else old.sharedKm,
             meaningfulEvents = old.meaningfulEvents + if (changed) 1 else 0,
             lastExploration = explore ?: old.lastExploration,
             lastRegularity = regular ?: old.lastRegularity,
