@@ -55,4 +55,33 @@ class PersonaEngineTest {
         assertFalse(VehicleReadings().hasMeasuredDrivingData())
         assertTrue(VehicleReadings(odometerKm = 0.0).hasMeasuredDrivingData())
     }
+    @Test fun energyDropChangesMoodBeforeLongTermIdentity() {
+        val full = baseline.copy(fuelPercent = 100.0)
+        val low = baseline.copy(fuelPercent = 15.0)
+        val fullMood = PersonaEngine.calculate(full)
+        val lowMood = PersonaEngine.calculate(low)
+        assertTrue(lowMood.hunger > fullMood.hunger)
+        assertTrue(lowMood.concern > fullMood.concern)
+        assertTrue(fullMood.line != lowMood.line)
+        assertTrue(PersonaEngine.moodLabel(fullMood) != PersonaEngine.moodLabel(lowMood))
+        val identity = IdentityEngine.generate("same-vehicle", full)
+        val after = IdentityEngine.evolve(identity, low)
+        assertEquals(identity.memory, after.memory)
+        assertEquals(identity.voiceBlueprint, after.voiceBlueprint)
+    }
+
+    @Test fun largeDistanceChangeAffectsExpressedTraitsWithoutReplacingBaseline() {
+        val start = VehicleSnapshot(10.0, 0.0, 100.0, 50.0, 0.5, 0.5)
+        val id = IdentityEngine.generate("same-vehicle", start)
+        val driven = start.copy(odometerKm = 50000.0)
+        val next = IdentityEngine.evolve(id, driven)
+        val expressed = PersonaEngine.expressedTraits(next.memory, driven)
+        assertTrue(expressed[2] > id.memory.traits[2])
+        assertTrue(expressed[3] > id.memory.traits[3])
+        assertEquals(id.voiceBlueprint, next.voiceBlueprint)
+        assertEquals(1, next.learningEvents)
+        assertEquals(id.initial, next.initial)
+        assertEquals(expressed, PersonaEngine.expressedTraits(next.memory, driven))
+    }
+
 }
