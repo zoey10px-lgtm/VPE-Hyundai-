@@ -16,15 +16,30 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
-  throw "adb not found. Start Android Studio, install Platform Tools, and add platform-tools to PATH."
+$adbCommand = Get-Command adb -ErrorAction SilentlyContinue
+$adbExecutable = if ($adbCommand) { $adbCommand.Source } else { $null }
+if (-not $adbExecutable) {
+  $candidates = @(
+    (Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe"),
+    (Join-Path $env:USERPROFILE "AppData\Local\Android\Sdk\platform-tools\adb.exe"),
+    (Join-Path $env:ANDROID_HOME "platform-tools\adb.exe")
+  )
+  foreach ($candidate in $candidates) {
+    if ($candidate -and (Test-Path $candidate)) {
+      $adbExecutable = $candidate
+      break
+    }
+  }
+}
+if (-not $adbExecutable) {
+  throw "adb.exe not found. Install Android SDK Platform Tools in Android Studio's SDK Manager."
 }
 
 $adbs = @()
 if ($DeviceSerial) { $adbs = @("-s", $DeviceSerial) }
 function RunAdb {
   param([Parameter(ValueFromRemainingArguments = $true)][string[]]$AdbArgs)
-  $res = & adb @adbs @AdbArgs 2>&1
+  $res = & $adbExecutable @adbs @AdbArgs 2>&1
   if ($LASTEXITCODE -ne 0) { throw "adb failed: $($AdbArgs -join ' ') -- $res" }
   return $res
 }
