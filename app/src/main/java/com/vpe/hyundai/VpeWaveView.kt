@@ -29,6 +29,17 @@ class VpeWaveView(context: Context) : View(context) {
             field = value
             invalidate()
         }
+    /** Affect-driven ambient motion, not audio playback. */
+    var affectIntensity: Float = 0.45f
+        set(value) {
+            field = value.coerceIn(0f, 1f)
+            invalidate()
+        }
+    var valence: Float = 0f
+        set(value) {
+            field = value.coerceIn(-1f, 1f)
+            invalidate()
+        }
     private val density = resources.displayMetrics.density
 
     init {
@@ -51,7 +62,11 @@ class VpeWaveView(context: Context) : View(context) {
         val radius = minOf(width * 0.32f, height * 0.41f)
         val colorOne = when (mode) {
             Mode.ERROR -> Color.rgb(254, 167, 154)
-            Mode.READY -> Color.rgb(105, 226, 194)
+            Mode.READY -> when {
+                valence < -.20f -> Color.rgb(255, 185, 159)
+                valence > .20f -> Color.rgb(105, 226, 194)
+                else -> Color.rgb(161, 191, 249)
+            }
             else -> Color.rgb(131, 172, 255)
         }
         val colorTwo = Color.rgb(186, 142, 247)
@@ -85,15 +100,16 @@ class VpeWaveView(context: Context) : View(context) {
         )
         val strength = when (mode) {
             Mode.CONNECTING -> 0.92f
-            Mode.READY -> 0.67f
+            Mode.READY -> 0.33f + 0.55f * affectIntensity
             Mode.ERROR -> 0.19f
             Mode.IDLE -> 0.48f
         }
+        val tempo = 0.75f + 0.90f * affectIntensity
         for (index in 0 until count) {
             val center = (index - (count - 1) / 2f) / (count / 2f)
             val envelope = 0.20f + 0.80f * (1f - abs(center) * 0.82f)
-            val a = sin(phase * 1.85 + index * 0.60).toFloat()
-            val b = sin(phase * 0.91 - index * 0.38 + PI / 2).toFloat()
+            val a = sin(phase * 1.85 * tempo + index * 0.60).toFloat()
+            val b = sin(phase * 0.91 * tempo - index * 0.38 + PI / 2).toFloat()
             val motion = (0.35f + 0.30f * a + 0.35f * b).coerceIn(0.12f, 1f)
             val height = (11f + 77f * strength * envelope * motion) * density
             val x = cx - spread / 2 + index * pitch
