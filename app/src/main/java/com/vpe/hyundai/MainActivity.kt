@@ -216,6 +216,8 @@ class MainActivity : Activity() {
         val mainTitle = when {
             connecting -> "당신의 차를 알아가는 중"
             demo -> "데모 페르소나가 준비됐어요"
+            !environment.automotive -> "스마트폰에서 VPE 체험하기"
+            environment.missingPermissions.isNotEmpty() -> "차량 권한 점검이 필요해요"
             identity != null -> "나만의 VPE가 탄생했어요"
             else -> "차량과 연결할 준비 완료"
         }
