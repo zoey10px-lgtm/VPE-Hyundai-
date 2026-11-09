@@ -268,7 +268,8 @@ class MainActivity : Activity() {
         description = "Pleos SDK 응답을 기다리고 있어요."
         show("home")
         var accepted = false
-        sdk.readVehicleData { message, partial ->
+        Thread {
+          sdk.readVehicleData { message, partial ->
             runOnUiThread {
                 if (requestId != currentRequest) return@runOnUiThread
                 diagnostics.add(message)
@@ -293,7 +294,8 @@ class MainActivity : Activity() {
                     show("home")
                 }
             }
-        }
+          }
+        }.start()
     }
 
     private fun applyReadings() {
