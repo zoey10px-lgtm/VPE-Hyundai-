@@ -11,6 +11,8 @@ import java.util.Locale
 class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var ready = false
+    private lateinit var pleos: PleosVehicleClient
+    private lateinit var sdkStatus: TextView
     private val values = mutableMapOf(
         "차량 연식 (년)" to 5, "누적 주행거리 (천 km)" to 70,
         "연료 (%)" to 65, "관리 점수" to 80,
@@ -21,6 +23,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tts = TextToSpeech(this, this)
+        pleos = PleosVehicleClient(this)
         val scroll = ScrollView(this)
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -65,6 +68,15 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             setPadding(12, 24, 12, 24)
         }
         layout.addView(result)
+        sdkStatus = TextView(this).apply { text = "Pleos SDK: 연결 전 · 성격 입력은 시뮬레이션 데이터"; textSize = 14f }
+        layout.addView(sdkStatus)
+        layout.addView(Button(this).apply {
+            text = "Pleos SDK 연결 및 운전석 도어 조회"
+            setOnClickListener {
+                sdkStatus.text = "Pleos SDK 연결 확인 중…"
+                pleos.readDriverDoor { message -> runOnUiThread { sdkStatus.text = message } }
+            }
+        })
         layout.addView(Button(this).apply {
             text = "🔊 차량 목소리 듣기"
             setOnClickListener {
@@ -114,6 +126,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     override fun onDestroy() {
         tts?.stop()
         tts?.shutdown()
+        pleos.release()
         super.onDestroy()
     }
 }
