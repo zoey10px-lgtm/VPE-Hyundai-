@@ -23,8 +23,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Build debug APK
-        run: gradle --no-daemon assembleDebug --stacktrace
+      - name: Run persona regression tests and build debug APK
+        run: gradle --no-daemon testDebugUnitTest assembleDebug --stacktrace
       - name: Audit Pleos SDK 2.3.2 method signatures
         if: always()
         shell: bash
