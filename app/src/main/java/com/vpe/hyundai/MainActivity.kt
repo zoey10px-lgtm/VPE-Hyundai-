@@ -37,6 +37,8 @@ class MainActivity : Activity() {
     private var connecting = false
     private var connectionNote = "아직 차량과 연결되지 않았어요."
     private val messages = mutableListOf<Pair<String, String>>()
+    private var liveMessages: LinearLayout? = null
+    private var liveChatScroll: ScrollView? = null
     private val diagnosticLogs = mutableListOf<String>()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var requestSerial = 0
@@ -127,6 +129,8 @@ class MainActivity : Activity() {
 
     private fun render(tab: String = currentTab) {
         currentTab = tab
+        liveMessages = null
+        liveChatScroll = null
         root = column().apply { setBackgroundColor(cream) }
         val header = row().apply { setPadding(d(24), d(15), d(24), d(12)) }
         val logo = label("vpe.", 29f, violet, true)
@@ -237,7 +241,7 @@ class MainActivity : Activity() {
             profile.addView(row().apply {
                 addView(label(if (demo) "데모 페르소나" else "VPE IDENTITY", 13f, teal, true),
                     LinearLayout.LayoutParams(0, -2, 1f))
-                addView(tag(if (demo) "가상 차량" else "차량 데이터 기반"))
+                addView(tag(if (demo) "가상 차량" else if (latest.vehicleKey == null) "차량 식별 미확인" else "차량 데이터 기반"))
             })
             profile.addView(gap(16))
             profile.addView(label("호기심  ${(traits[1] * 100).toInt()}%   ·   친밀감  ${(traits[2] * 100).toInt()}%", 17f, ink, true))
@@ -282,20 +286,9 @@ class MainActivity : Activity() {
         scroll.addView(conversationView)
         contentHost.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
 
-        messages.forEach { (sender, message) ->
-            val mine = sender == "나"
-            val alignment = row().apply { gravity = if (mine) Gravity.RIGHT else Gravity.LEFT }
-            val bubble = column(14).apply {
-                background = shape(if (mine) violet else white, 21, if (mine) null else line)
-            }
-            bubble.addView(label(message, 15f, if (mine) white else ink))
-            alignment.addView(bubble, LinearLayout.LayoutParams(-2, -2).apply {
-                width = if (resources.displayMetrics.widthPixels > d(540)) d(400)
-                    else (resources.displayMetrics.widthPixels * 0.76).toInt()
-            })
-            conversationView.addView(alignment)
-            conversationView.addView(gap(11))
-        }
+        liveMessages = conversationView
+        liveChatScroll = scroll
+        messages.forEach { (sender, message) -> appendBubble(conversationView, sender, message) }
         scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
 
         val actions = row().apply {
@@ -335,11 +328,34 @@ class MainActivity : Activity() {
         contentHost.addView(composer)
     }
 
+    private fun appendBubble(container: LinearLayout, sender: String, message: String) {
+        val mine = sender == "나"
+        val alignment = row().apply { gravity = if (mine) Gravity.RIGHT else Gravity.LEFT }
+        val bubble = column(14).apply {
+            background = shape(if (mine) violet else white, 21, if (mine) null else line)
+        }
+        bubble.addView(label(message, 15f, if (mine) white else ink))
+        alignment.addView(bubble, LinearLayout.LayoutParams(-2, -2).apply {
+            width = if (resources.displayMetrics.widthPixels > d(540)) d(400)
+                else (resources.displayMetrics.widthPixels * 0.76).toInt()
+        })
+        container.addView(alignment)
+        container.addView(gap(11))
+    }
+
     private fun sendMessage(message: String) {
+        val response = reply(message)
         messages.add("나" to message)
-        messages.add("VPE" to reply(message))
+        messages.add("VPE" to response)
         saveMessages()
-        render("chat")
+        val visible = liveMessages
+        if (currentTab == "chat" && visible != null) {
+            appendBubble(visible, "나", message)
+            appendBubble(visible, "VPE", response)
+            liveChatScroll?.post { liveChatScroll?.fullScroll(View.FOCUS_DOWN) }
+        } else {
+            render("chat")
+        }
     }
 
     private fun reply(message: String): String {
@@ -417,6 +433,7 @@ class MainActivity : Activity() {
     private fun connectVehicle() {
         if (connecting) return
         connecting = true
+        if (demo) { identity = null; observedSnapshot = null }
         demo = false
         latest = VehicleReadings()
         diagnosticLogs.clear()
@@ -471,9 +488,11 @@ class MainActivity : Activity() {
             ) else IdentityEngine.evolve(existing, snap)
             observedSnapshot = snap
             identity?.let(store::save)
-            connectionNote = if (latest.energyPercent() == null)
-                "주행거리 수신 완료 · 에너지 데이터는 아직 미확인"
-            else "Pleos 차량 데이터를 반영했어요."
+            connectionNote = when {
+                latest.vehicleKey == null -> "주행거리를 확인했어요. 차량 식별자는 미확인이라 로컬 임시 프로필로 저장했어요."
+                latest.energyPercent() == null -> "주행거리 수신 완료 · 에너지 데이터는 아직 미확인"
+                else -> "Pleos 차량 데이터를 반영했어요."
+            }
         } else {
             connectionNote = when {
                 diagnosticLogs.any { it.contains("PERMISSION_DENIED") } ->
