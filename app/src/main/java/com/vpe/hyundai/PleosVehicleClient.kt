@@ -32,7 +32,14 @@ class PleosVehicleClient(context: Context) {
             )
             var requested = 0
             sources.forEach { (domain, target) ->
-                val allowed = when (domain) {\n                    "Odometer" -> setOf("getOdometer", "getOdometerValue", "getTotalDistance", "getAccumulatedDistance")\n                    "Fuel" -> setOf("getFuelLevel", "getFuelLevelPercent", "getFuelPercentage")\n                    "CarInfo" -> setOf("getVehicleModel", "getModelYear")\n                    else -> emptySet()\n                }\n                val methods = target.javaClass.methods.filter { method ->\n                    method.name in allowed &&
+                val allowed = when (domain) {
+                    "Odometer" -> setOf("getOdometer", "getOdometerValue", "getTotalDistance", "getAccumulatedDistance")
+                    "Fuel" -> setOf("getFuelLevel", "getFuelLevelPercent", "getFuelPercentage")
+                    "CarInfo" -> setOf("getVehicleModel", "getModelYear")
+                    else -> emptySet()
+                }
+                val methods = target.javaClass.methods.filter { method ->
+                    method.name in allowed &&
                     method.name.startsWith("get") && method.name != "getClass" &&
                         method.parameterTypes.isNotEmpty() &&
                         method.parameterTypes.all { type ->
