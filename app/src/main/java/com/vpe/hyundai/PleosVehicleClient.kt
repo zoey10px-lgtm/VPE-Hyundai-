@@ -2,105 +2,110 @@ package com.vpe.hyundai
 
 import android.content.Context
 import ai.pleos.playground.vehicle.Vehicle
-import java.lang.reflect.Method
+import java.security.MessageDigest
 
-/** Read-only Pleos SDK adapter. No simulated readings are returned as real readings. */
+/** Typed, read-only Pleos Vehicle SDK 2.3.2 integration, confirmed from actual AAR. */
 class PleosVehicleClient(context: Context) {
     private val vehicle = Vehicle(context.applicationContext)
     private var initialized = false
 
-    private fun ready() {
+    @Synchronized private fun ready() {
         if (!initialized) {
             vehicle.initialize()
             initialized = true
         }
     }
 
-    /**
-     * Discovers the SDK's installed getter signatures and invokes safe zero-argument
-     * asynchronous getters. Callback data is exposed with the originating method name.
-     * Units are not guessed: unrecognized data stays diagnostic-only.
-     */
     fun readVehicleData(onReading: (String, VehicleReadings?) -> Unit) {
         try {
             ready()
-            val sources = listOf(
-                "Odometer" to vehicle.getOdometer(),
-                "Fuel" to vehicle.getFuel(),
-                "CarInfo" to vehicle.getCarInfo(),
-                "EvBattery" to vehicle.getEvBattery()
-            )
-            var requested = 0
-            sources.forEach { (domain, target) ->
-                val allowed = when (domain) {
-                    "Odometer" -> setOf("getOdometer", "getOdometerValue", "getTotalDistance", "getAccumulatedDistance")
-                    "Fuel" -> setOf("getFuelLevel", "getFuelLevelPercent", "getFuelPercentage")
-                    "CarInfo" -> setOf("getVehicleModel", "getModelYear")
-                    else -> emptySet()
-                }
-                val available = target.javaClass.methods.filter { it.name.startsWith("get") && it.name != "getClass" }.map { it.name }.distinct().sorted()
-                onReading("$domain 실제 SDK getter: ${available.joinToString().take(350)}", null)
-                val methods = target.javaClass.methods.filter { method ->
-                    method.name in allowed &&
-                    method.name.startsWith("get") && method.name != "getClass" &&
-                        method.parameterTypes.isNotEmpty() &&
-                        method.parameterTypes.all { type ->
-                            kotlin.jvm.functions.Function1::class.java.isAssignableFrom(type) ||
-                                kotlin.jvm.functions.Function2::class.java.isAssignableFrom(type)
-                        }
-                }.distinctBy { it.name + it.parameterCount }
-                onReading("$domain: 허용된 조회 메서드 ${methods.joinToString { it.name }.ifBlank { "없음" }}", null)
-                methods.forEach { method ->
-                    requested++
-                    try {
-                        val args = method.parameterTypes.mapIndexed { index, type ->
-                            val isFailure = index > 0 && index == method.parameterTypes.lastIndex
-                            if (kotlin.jvm.functions.Function2::class.java.isAssignableFrom(type)) {
-                                { a: Any?, b: Any? ->
-                                    receive(domain, method, if (a is Number) a else b, isFailure, onReading)
-                                    Unit
-                                }
-                            } else {
-                                { value: Any? ->
-                                    receive(domain, method, value, isFailure, onReading)
-                                    Unit
-                                }
-                            }
-                        }.toTypedArray()
-                        method.invoke(target, *args)
-                    } catch (e: Exception) {
-                        onReading("$domain.${method.name}: ${e.cause?.message ?: e.message}", null)
+            onReading("Pleos Vehicle Service 초기화 요청 완료", null)
+        } catch (error: Exception) {
+            onReading("SERVICE_ERROR: ${safeMessage(error)}", null)
+            return
+        }
+
+        try {
+            vehicle.getOdometer().getCurrentDistanceDriven(
+                onComplete = { distance ->
+                    val km = distance?.toDouble()
+                    if (km != null && km.isFinite() && km >= 0.0) {
+                        onReading("ODO_OK: 누적 주행거리 수신", VehicleReadings(odometerKm = km))
+                    } else {
+                        onReading("ODO_EMPTY: 주행거리 값 없음", null)
                     }
-                }
-            }
-            if (requested == 0) onReading("현재 확인된 안전한 SDK 조회 메서드가 없습니다. Pleos 환경 및 API 지원 여부를 확인하세요.", null)
-        } catch (e: Exception) {
-            onReading("Pleos SDK 초기화/조회 실패: ${e.message ?: e.javaClass.simpleName}", null)
+                },
+                onFailed = { error -> onReading("ODO_ERROR: ${safeMessage(error)}", null) }
+            )
+        } catch (error: Exception) {
+            onReading("ODO_ERROR: ${safeMessage(error)}", null)
+        }
+
+        try {
+            vehicle.getFuel().getFuelPercent(
+                onComplete = { percent ->
+                    val value = percent?.toDouble()
+                    if (value != null && value in 0.0..100.0) {
+                        onReading("FUEL_OK: 연료 비율 수신", VehicleReadings(fuelPercent = value))
+                    } else {
+                        onReading("FUEL_EMPTY: 연료 비율 확인 불가", null)
+                    }
+                },
+                onFailed = { error -> onReading("FUEL_ERROR: ${safeMessage(error)}", null) }
+            )
+        } catch (error: Exception) {
+            onReading("FUEL_ERROR: ${safeMessage(error)}", null)
+        }
+
+        try {
+            vehicle.getEvBattery().getEvBatteryLevel(
+                onComplete = { level ->
+                    val value = level?.toDouble()
+                    if (value != null && value > 1.0 && value <= 100.0) {
+                        onReading("EV_OK: 배터리 잔량 수신", VehicleReadings(evBatteryLevel = value))
+                    } else {
+                        onReading("EV_INFO: 배터리 원시값 ${value ?: "없음"} (단위 검증 필요)", null)
+                    }
+                },
+                onFailed = { error -> onReading("EV_ERROR: ${safeMessage(error)}", null) }
+            )
+        } catch (error: Exception) {
+            onReading("EV_ERROR: ${safeMessage(error)}", null)
+        }
+
+        try {
+            vehicle.getCarInfo().getVINInfo(
+                onComplete = { vin ->
+                    if (vin.isNullOrBlank()) {
+                        onReading("VIN_EMPTY: 차량 고유 식별자 미제공", null)
+                    } else {
+                        onReading("VIN_OK: 차량 ID 확인 (원문 비저장)", VehicleReadings(vehicleKey = fingerprint(vin)))
+                    }
+                },
+                onFailed = { error -> onReading("VIN_ERROR: ${safeMessage(error)}", null) }
+            )
+        } catch (error: Exception) {
+            onReading("VIN_ERROR: ${safeMessage(error)}", null)
         }
     }
 
-    private fun receive(
-        domain: String, method: Method, value: Any?, failed: Boolean,
-        onReading: (String, VehicleReadings?) -> Unit
-    ) {
-        val name = method.name.lowercase()
-        val number = value as? Number
-        val n = number?.toDouble()
-        val reading = if (!failed && n != null && n.isFinite()) {
-            when {
-                domain == "Odometer" && ("km" in name || "kilometer" in name) &&
-                    ("total" in name || "odometer" in name || "accumulated" in name) ->
-                    VehicleReadings(odometerKm = n)
-                domain == "Fuel" && ("percent" in name || "percentage" in name) ->
-                    VehicleReadings(fuelPercent = n)
-                else -> null
-            }
-        } else null
-        onReading("$domain.${method.name}: ${value ?: "null"}" +
-            if (reading != null) " (VPE 입력 반영 가능)" else " (단위 확인 필요/진단)", reading)
+    private fun fingerprint(value: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(("vpe-local-v1:" + value.trim()).toByteArray(Charsets.UTF_8))
+        return "vehicle:" + digest.joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
-    fun release() {
+    private fun safeMessage(error: Exception): String {
+        val message = error.message.orEmpty()
+        return when {
+            error is SecurityException || "permission" in message.lowercase() ->
+                "PERMISSION_DENIED: Pleos 차량 데이터 권한을 확인하세요."
+            "not supported" in message.lowercase() -> "UNSUPPORTED: 이 차량에서 지원되지 않는 데이터"
+            else -> error.javaClass.simpleName + ": " + message.take(120)
+        }
+    }
+
+    @Synchronized fun release() {
         if (initialized) {
             vehicle.release()
             initialized = false
