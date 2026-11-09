@@ -41,7 +41,7 @@ jobs:
           fi
           for api in Odometer Fuel CarInfo EvBattery; do
             echo "== $api =="
-            javap -classpath /tmp/vpe-pleos/classes.jar -p "ai.pleos.playground.vehicle.api.$api" | grep -E 'getCurrentDistanceDriven|getFuelPercent|getVINInfo|getCRNInfo|getEvBatteryLevel|checkCurrentDistanceDrivenCapabilities|checkFuelPercentCapabilities' || true
+            javap -classpath /tmp/vpe-pleos/classes.jar -p "ai.pleos.playground.vehicle.api.$api" | grep -E 'get|register|unregister|check' || true
           done
       - uses: actions/upload-artifact@v4
         if: success()
