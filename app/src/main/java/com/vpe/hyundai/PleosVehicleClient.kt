@@ -26,7 +26,7 @@ class PleosVehicleClient(context: Context) {
         override fun onDistanceDrivenUpdated(value: Float?) {
             val km = value?.toDouble()
             if (km != null && km.isFinite() && km >= 0.0) {
-                emitUpdate("ODO_UPDATE: 누적 주행거리 변경", VehicleReadings(odometerKm = km))
+                emitUpdate("ODO_UPDATE: km=" + km, VehicleReadings(odometerKm = km))
             }
         }
     }
@@ -38,7 +38,7 @@ class PleosVehicleClient(context: Context) {
         override fun onFuelPercentUpdated(value: Int?) {
             val percent = value?.toDouble()
             if (percent != null && percent in 0.0..100.0) {
-                emitUpdate("FUEL_UPDATE: 연료 비율 변경", VehicleReadings(fuelPercent = percent))
+                emitUpdate("FUEL_UPDATE: percent=" + percent, VehicleReadings(fuelPercent = percent))
             }
         }
     }
@@ -50,7 +50,7 @@ class PleosVehicleClient(context: Context) {
         override fun onEvBatteryStateOfChargeUpdated(percent: Int?) {
             val value = percent?.toDouble()
             if (value != null && value in 0.0..100.0)
-                emitUpdate("EV_SOC_UPDATE: 실제 배터리 잔량 변경", VehicleReadings(evBatteryLevel = value))
+                emitUpdate("EV_SOC_UPDATE: percent=" + value, VehicleReadings(evBatteryLevel = value))
         }
     }
 
@@ -74,7 +74,7 @@ class PleosVehicleClient(context: Context) {
             onReading(message, readings)
         }
         val environment = VehicleEnvironmentInspector.inspect(appContext)
-        if (!environment.readyForVehicleRequest) {
+        if (!environment.automotive) {
             report("ENVIRONMENT_ERROR: " + environment.code + ": " + environment.summary, null)
             return
         }
@@ -106,7 +106,7 @@ class PleosVehicleClient(context: Context) {
                                 onComplete = { distance ->
                                     val km = distance?.toDouble()
                                     if (km != null && km.isFinite() && km >= 0.0) {
-                                        report("ODO_OK: 누적 주행거리 수신", VehicleReadings(odometerKm = km))
+                                        report("ODO_OK: km=" + km, VehicleReadings(odometerKm = km))
                                     } else {
                                         report("ODO_EMPTY: 주행거리 값 없음", null)
                                     }
@@ -144,7 +144,7 @@ class PleosVehicleClient(context: Context) {
                                 onComplete = { percent ->
                                     val value = percent?.toDouble()
                                     if (value != null && value in 0.0..100.0) {
-                                        report("FUEL_OK: 연료 비율 수신", VehicleReadings(fuelPercent = value))
+                                        report("FUEL_OK: percent=" + value, VehicleReadings(fuelPercent = value))
                                     } else {
                                         report("FUEL_EMPTY: 연료 비율 확인 불가", null)
                                     }
@@ -182,7 +182,7 @@ class PleosVehicleClient(context: Context) {
                                 onComplete = { percent ->
                                     val value = percent?.toDouble()
                                     if (value != null && value in 0.0..100.0)
-                                        report("EV_OK: 배터리 충전율 수신", VehicleReadings(evBatteryLevel = value))
+                                        report("EV_OK: percent=" + value, VehicleReadings(evBatteryLevel = value))
                                     else report("EV_EMPTY: 배터리 충전율 값 없음", null)
                                 },
                                 onFailed = { error -> report("EV_ERROR: " + safeMessage(error), null) }
