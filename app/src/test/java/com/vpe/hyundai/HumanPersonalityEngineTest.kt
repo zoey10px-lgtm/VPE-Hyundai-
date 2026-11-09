@@ -86,4 +86,13 @@ class HumanPersonalityEngineTest {
         val newer = HumanPersonalityEngine.observe(car(km=199277.0),state)
         assertEquals(100.0,newer.memory.sharedKm,.0001)
     }
+    @Test fun significantExperienceSlowlyAdaptsTraitsWithoutSensorPollLearning() {
+        val start = HumanPersonalityEngine.observe(car(km=0.0))
+        val driven = HumanPersonalityEngine.observe(car(km=50000.0),start)
+        assertEquals(1,driven.memory.meaningfulEvents)
+        assertTrue(driven.core.traits[3] > start.core.traits[3])
+        assertEquals(start.core.mbti, driven.core.mbti)
+        assertEquals(driven,HumanPersonalityEngine.observe(car(km=50000.0),driven))
+    }
+
 }
