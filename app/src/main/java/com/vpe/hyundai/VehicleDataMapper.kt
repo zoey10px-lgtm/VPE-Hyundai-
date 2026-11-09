@@ -6,7 +6,13 @@ data class VehicleReadings(
     val fuelPercent: Double? = null,
     val modelYear: Int? = null,
     val evBatteryLevel: Double? = null,
-    val vehicleKey: String? = null
+    val vehicleKey: String? = null,
+    val cabinTemperatureC: Double? = null,
+    val targetTemperatureC: Double? = null,
+    val hvacOn: Boolean? = null,
+    val charging: Boolean? = null,
+    val parked: Boolean? = null,
+    val safetyWarning: Boolean? = null
 ) {
     fun hasMeasuredDrivingData(): Boolean = odometerKm != null
     fun energyPercent(): Double? = fuelPercent ?: evBatteryLevel
