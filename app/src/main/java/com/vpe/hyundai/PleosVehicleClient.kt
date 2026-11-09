@@ -20,6 +20,9 @@ class PleosVehicleClient(context: Context) {
     @Volatile private var listenerReporter: ((String, VehicleReadings?) -> Unit)? = null
 
     private val distanceListener = object : DistanceDrivenListener {
+        override fun onFailed(error: Exception) {
+            emitUpdate("ODO_LISTENER_ERROR: " + safeMessage(error), null)
+        }
         override fun onDistanceDrivenUpdated(value: Float?) {
             val km = value?.toDouble()
             if (km != null && km.isFinite() && km >= 0.0) {
@@ -29,6 +32,9 @@ class PleosVehicleClient(context: Context) {
     }
 
     private val fuelListener = object : FuelPercentListener {
+        override fun onFailed(error: Exception) {
+            emitUpdate("FUEL_LISTENER_ERROR: " + safeMessage(error), null)
+        }
         override fun onFuelPercentUpdated(value: Int?) {
             val percent = value?.toDouble()
             if (percent != null && percent in 0.0..100.0) {
