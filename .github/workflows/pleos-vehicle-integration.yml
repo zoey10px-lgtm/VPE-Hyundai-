@@ -71,7 +71,7 @@ jobs:
           PY
           IMAGE_URL=$(sed -n '1p' /tmp/pleos-archive-info.txt)
           IMAGE_SHA1=$(sed -n '2p' /tmp/pleos-archive-info.txt)
-          echo "Downloading official Pleos image; size ~4 GB, checksum checked after transfer"
+          echo "Downloading official Pleos Connect Android Automotive system image; SHA-1 is validated against official repository XML"
           df -h "$ANDROID_HOME"
           curl --fail --location --retry 3 --retry-delay 5 --connect-timeout 30 \
             --max-time 1400 --progress-bar "$IMAGE_URL" -o /tmp/pleos-official-image.zip
