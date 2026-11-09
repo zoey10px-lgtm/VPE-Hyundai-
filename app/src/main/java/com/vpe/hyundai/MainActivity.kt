@@ -153,7 +153,7 @@ class MainActivity : Activity() {
             val active = target == tab
             val item = column().apply {
                 gravity = Gravity.CENTER
-                minHeight = d(56)
+                minimumHeight = d(56)
                 setPadding(d(8), d(5), d(8), d(5))
                 background = if (active) shape(Color.rgb(242, 239, 255), 20) else null
                 setOnClickListener { if (target != currentTab) render(target) }
