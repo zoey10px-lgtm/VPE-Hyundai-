@@ -21,9 +21,11 @@ $adbExecutable = if ($adbCommand) { $adbCommand.Source } else { $null }
 if (-not $adbExecutable) {
   $candidates = @(
     (Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe"),
-    (Join-Path $env:USERPROFILE "AppData\Local\Android\Sdk\platform-tools\adb.exe"),
-    (Join-Path $env:ANDROID_HOME "platform-tools\adb.exe")
+    (Join-Path $env:USERPROFILE "AppData\Local\Android\Sdk\platform-tools\adb.exe")
   )
+  if ($env:ANDROID_HOME) {
+    $candidates += (Join-Path $env:ANDROID_HOME "platform-tools\adb.exe")
+  }
   foreach ($candidate in $candidates) {
     if ($candidate -and (Test-Path $candidate)) {
       $adbExecutable = $candidate
