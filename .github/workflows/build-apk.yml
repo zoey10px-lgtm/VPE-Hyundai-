@@ -43,6 +43,10 @@ jobs:
             echo "== $api =="
             javap -classpath /tmp/vpe-pleos/classes.jar -p "ai.pleos.playground.vehicle.api.$api" | grep -E 'get|register|unregister|check' || true
           done
+          for api in DistanceDrivenListener FuelPercentListener; do
+            echo "== Listener $api =="
+            javap -classpath /tmp/vpe-pleos/classes.jar -p "ai.pleos.playground.vehicle.listener.$api" || true
+          done
       - uses: actions/upload-artifact@v4
         if: success()
         with:
