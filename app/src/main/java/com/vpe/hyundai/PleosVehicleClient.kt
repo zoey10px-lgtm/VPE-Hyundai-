@@ -38,6 +38,8 @@ class PleosVehicleClient(context: Context) {
                     "CarInfo" -> setOf("getVehicleModel", "getModelYear")
                     else -> emptySet()
                 }
+                val available = target.javaClass.methods.filter { it.name.startsWith("get") && it.name != "getClass" }.map { it.name }.distinct().sorted()
+                onReading("$domain 실제 SDK getter: ${available.joinToString().take(350)}", null)
                 val methods = target.javaClass.methods.filter { method ->
                     method.name in allowed &&
                     method.name.startsWith("get") && method.name != "getClass" &&
