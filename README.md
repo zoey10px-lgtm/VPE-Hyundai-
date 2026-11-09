@@ -1,8 +1,23 @@
 # VPE Hyundai · Vehicle Persona Engine
 
-**Latest:** v0.4.1 — Pleos host environment and permission diagnostics.
+**Latest: v0.6.0 — Human Personality Engine 1.0**
 
-A Kotlin Android prototype that turns **verified vehicle readings** into a persistent personality and a voice-design blueprint. Visual design is a bright, mobile-first UI with a continuously animated custom orb/waveform.
+Six-stage **psychology-inspired vehicle persona engine**: actual Pleos signals → features → deterministic MBTI and 7 long-term traits → observed experience/memory → current needs and cognitive appraisal → expression. MBTI is a fictional character label, not a validated human psychometric inference.
+
+**[Read the full HPE architecture, formulas, inputs, SDK status and acceptance tests](docs/HPE-ARCHITECTURE.md).**
+
+### New in v0.6.0
+
+- **MBTI** (continuous E/N/T/J axes) replaces the displayed voice age group; feminine/masculine voice blueprint identity remains.
+- Seven long-term traits and eight emotional/need dimensions, with missing signals distinguished from real observations.
+- Separately persisted and slowly adapting HPE identity, event-gated narrative memory, no repeated sensor-poll learning.
+- Personality-conditioned expression and chat instead of a static mood response. No unsolicited driving speech.
+- New real Pleos getter/listener adapters for driver **actual cabin temperature**, **target HVAC temperature**, **HVAC power**, and getter for **EV charge switch**. Vehicle-specific callback success and permissions must be confirmed in diagnostics.
+- Deterministic Kotlin unit tests for MBTI, experience, battery, charging and temperature behavior; CI builds an Android APK.
+
+### Verified vs pending
+
+Previously verified on the official Pleos AVD: Odometer, EV SOC, hashed VIN identity. Newly added HVAC and charging switch getters are compile-tested and still require on-device verification. Location/route history, maintenance, gear and warnings are planned optional adapters, and unavailable values remain explicitly unknown. This app is not an autonomous driving assistant. Voice synthesis/STT/LLM are not part of this release.
 
 ## Version 0.4 · What works
 
