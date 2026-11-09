@@ -123,6 +123,20 @@ jobs:
           sudo sh -c 'echo KERNEL=="kvm", GROUP="kvm", MODE="0666" > /etc/udev/rules.d/99-kvm4all.rules'
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+          # The standard hosted runner exposes /dev/kvm but may leave it inaccessible
+          # to the non-root 'runner' user. Explicitly grant access in this ephemeral VM.
+          if [ -e /dev/kvm ]; then
+            echo "KVM before: $(ls -l /dev/kvm)"
+            sudo chmod a+rw /dev/kvm
+            echo "KVM after: $(ls -l /dev/kvm)"
+          else
+            echo "::error::This runner has no /dev/kvm device"
+            exit 1
+          fi
+          "$ANDROID_HOME/emulator/emulator" -accel-check || {
+            echo "::error::KVM remains unavailable after permission fix"
+            exit 1
+          }
           echo "Starting Pleos system image with verbose emulator log..."
           "$ANDROID_HOME/emulator/emulator" -avd "VPE_Pleos_Connect" -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -memory 4096 -verbose > /tmp/pleos-emulator.log 2>&1 &
           EMULATOR_PID=$!
