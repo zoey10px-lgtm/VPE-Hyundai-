@@ -39,7 +39,8 @@ class HpeStore(context: Context) {
         prefs.edit().putString("state", json.toString()).apply()
     }
 
-    fun load(key: String): HpeState? = try {
+    fun load(key: String): HpeState? {
+        return try {
         val json = JSONObject(prefs.getString("state",null) ?: return null)
         if (json.optInt("version") != HumanPersonalityEngine.VERSION ||
             json.optString("key") != key) return null
@@ -67,5 +68,6 @@ class HpeStore(context: Context) {
         val affect = HumanPersonalityEngine.affect(appraisal,s)
         HpeState(key, core, m, affect,
             HumanPersonalityEngine.express(core,affect,s), emptyList(),s)
-    } catch (_: Exception) { null }
+        } catch (_: Exception) { null }
+    }
 }
