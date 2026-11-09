@@ -245,7 +245,7 @@ class MainActivity : Activity() {
                 else -> "Pleos 차량 연결하기"
             }
         ) {
-            if (environment.readyForVehicleRequest && !connecting) connectVehicle()
+            if (environment.automotive && !connecting) connectVehicle()
             else render("diagnostics")
         })
         page.addView(hero)
@@ -412,7 +412,7 @@ class MainActivity : Activity() {
         summary.addView(gap(12))
         summary.addView(label(environment.summary, 13f, secondary))
         summary.addView(gap(14))
-        if (environment.readyForVehicleRequest) {
+        if (environment.automotive) {
             summary.addView(button("Pleos 차량 연결 재시도") { connectVehicle() })
         } else {
             summary.addView(button("시연용 VPE 바로 체험하기") { loadDemo() })
@@ -481,7 +481,7 @@ class MainActivity : Activity() {
     private fun connectVehicle() {
         if (connecting) return
         environment = VehicleEnvironmentInspector.inspect(this)
-        if (!environment.readyForVehicleRequest) {
+        if (!environment.automotive) {
             ++requestSerial
             connecting = false
             diagnosticLogs.clear()
