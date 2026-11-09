@@ -508,8 +508,9 @@ class MainActivity : Activity() {
         Thread {
             sdk.readVehicleData { log, reading ->
                 runOnUiThread {
-                    if (serial != requestSerial || !connecting) return@runOnUiThread
+                    if (serial != requestSerial) return@runOnUiThread
                     diagnosticLogs.add(log)
+                    if (diagnosticLogs.size > 80) diagnosticLogs.removeAt(0)
                     if (reading != null) {
                         latest = latest.copy(
                             odometerKm = reading.odometerKm ?: latest.odometerKm,
@@ -518,12 +519,16 @@ class MainActivity : Activity() {
                             evBatteryLevel = reading.evBatteryLevel ?: latest.evBatteryLevel,
                             vehicleKey = reading.vehicleKey ?: latest.vehicleKey
                         )
-                        if (latest.odometerKm != null && latest.energyPercent() != null &&
-                            latest.vehicleKey != null) {
+                        if (connecting && latest.odometerKm != null &&
+                            latest.energyPercent() != null && latest.vehicleKey != null) {
                             finishConnection(serial, timeout = false)
+                        } else if (!connecting && identity != null && !demo) {
+                            applyLiveSdkReadings()
                         }
                     }
-                    if (log.startsWith("SERVICE_ERROR")) finishConnection(serial, timeout = false)
+                    if (connecting && log.startsWith("SERVICE_ERROR")) {
+                        finishConnection(serial, timeout = false)
+                    }
                 }
             }
         }.start()
@@ -563,6 +568,27 @@ class MainActivity : Activity() {
             }
         }
         render("home")
+    }
+
+    /**
+     * Receives subsequent real Pleos listener notifications even after the first
+     * connection has finished. Transient mood tracks current readings immediately;
+     * long-term identity learns only if the engine's event gate is satisfied.
+     */
+    private fun applyLiveSdkReadings() {
+        val previous = identity ?: return
+        if (latest.odometerKm == null || demo) return
+        val base = observedSnapshot ?: previous.lastLearned
+        val next = VehicleDataMapper.merge(
+            base, latest, Calendar.getInstance().get(Calendar.YEAR)
+        )
+        observedSnapshot = next
+        val evolved = IdentityEngine.evolve(previous, next)
+        if (evolved != previous) {
+            identity = evolved
+            store.save(evolved)
+        }
+        if (currentTab == "home" || currentTab == "diagnostics") render(currentTab)
     }
 
     private fun loadDemo() {
