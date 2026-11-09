@@ -43,6 +43,62 @@ class PleosVehicleClient(context: Context) {
         }
     }
 
+    /**
+     * Read-only SDK diagnostic for the VPE input domains.
+     * Uses the SDK's actual public method signatures at runtime rather than assuming
+     * a property name or converting an unknown unit to km/percent.
+     */
+    fun inspectPersonaSources(onResult: (String) -> Unit) {
+        try {
+            if (!initialized) {
+                vehicle.initialize()
+                initialized = true
+            }
+            val domains = listOf(
+                "주행거리" to vehicle.getOdometer(),
+                "연료" to vehicle.getFuel(),
+                "차량정보" to vehicle.getCarInfo(),
+                "전기차 배터리" to vehicle.getEvBattery()
+            )
+            for ((label, target) in domains) {
+                val methods = target.javaClass.methods
+                    .filter { it.name.startsWith("get") && it.name != "getClass" }
+                    .filter { method -> method.parameterTypes.any {
+                        kotlin.jvm.functions.Function1::class.java.isAssignableFrom(it) ||
+                            kotlin.jvm.functions.Function2::class.java.isAssignableFrom(it)
+                    } }
+                    .sortedBy { it.name }
+                onResult("$label: SDK 조회 API ${methods.joinToString { it.name }.ifBlank { "없음" }}")
+                // Zero-argument async getters only; never call a setter or guess area parameters.
+                for (method in methods.filter { m -> m.parameterTypes.all {
+                    kotlin.jvm.functions.Function1::class.java.isAssignableFrom(it) ||
+                        kotlin.jvm.functions.Function2::class.java.isAssignableFrom(it)
+                } }) {
+                    try {
+                        val args = method.parameterTypes.map { type ->
+                            if (kotlin.jvm.functions.Function2::class.java.isAssignableFrom(type)) {
+                                { a: Any?, b: Any? ->
+                                    onResult("$label.${method.name}: ${a ?: "null"}, ${b ?: "null"}")
+                                    kotlin.Unit
+                                }
+                            } else {
+                                { value: Any? ->
+                                    onResult("$label.${method.name}: ${value ?: "null"}")
+                                    kotlin.Unit
+                                }
+                            }
+                        }.toTypedArray()
+                        method.invoke(target, *args)
+                    } catch (e: Exception) {
+                        onResult("$label.${method.name} 호출 실패: ${e.cause?.message ?: e.message}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            onResult("SDK 데이터 조회 초기화 실패: ${e.message}")
+        }
+    }
+
     fun release() {
         if (initialized) {
             vehicle.release()
