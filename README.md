@@ -1,5 +1,7 @@
 # VPE Hyundai · Vehicle Persona Engine
 
+**Latest:** v0.4.1 — Pleos host environment and permission diagnostics.
+
 A Kotlin Android prototype that turns **verified vehicle readings** into a persistent personality and a voice-design blueprint. Visual design is a bright, mobile-first UI with a continuously animated custom orb/waveform.
 
 ## Version 0.4 · What works
@@ -11,6 +13,16 @@ A Kotlin Android prototype that turns **verified vehicle readings** into a persi
 - **Identity:** deterministic weighted traits, stable first-time voice *blueprint*, locally saved identity and event-gated long-term learning. Audio/STT/LLM have not been implemented.
 
 ## Pleos Vehicle SDK v2.3.2
+
+### 0.4.1: Why a phone may show permission denied
+
+The SDK library can be compiled into a standard Android APK, but **Pleos Vehicle Service runs in Pleos Connect on Android Automotive OS**, not on normal phones. The APK declares the SDK's read-only `CAR_DRIVE`, `CAR_ENERGY`, and `CAR_INFO` permissions. These are not Android runtime popup permissions. On a normal smartphone the system usually does not provide the Pleos permission definitions or Vehicle Service, so the SDK cannot supply real vehicle readings.
+
+At app launch `VehicleEnvironmentInspector` now checks `FEATURE_AUTOMOTIVE`, the app manifest declarations, whether the host OS defines each permission, and whether each permission is actually granted. On phones the app shows an actionable Pleos connection guide and a **clearly labeled demo button**, without reporting a fake successful vehicle connection. The SDK client itself also checks the host before making any SDK requests. On Automotive, passing this preflight is a prerequisite, **not proof that Vehicle Service is connected**; actual SDK callbacks remain the proof.
+
+To verify real vehicle readings, use the official [Pleos Connect Emulator installation guide](https://document.pleos.ai/en/docs/connect/guide/getting-started/application-development/setup-connect-sdk-emulator) and start the emulator with **Cold boot**. Confirm Vehicle Service is up, install the APK, and use the **진단** tab to inspect permission state and per-API callbacks.
+
+
 
 This project resolves the official SDK AAR from Pleos Maven and uses **actual, compile-verified typed methods** rather than guessed method names or reflection.
 
@@ -38,7 +50,7 @@ The SDK's public CarInfo data in this version exposes VIN and CRN, not a verifie
 ## Validation
 
 GitHub Actions workflow **Build VPE Android APK** runs:
-- `gradle testDebugUnitTest assembleDebug`: six automated regression tests including male/female voice profiles, deterministic outputs, learning, fuel/mood separation, and preservation of missing data.
+- `gradle testDebugUnitTest assembleDebug`: nine automated regression tests including male/female voice profiles, deterministic outputs, learning, fuel/mood separation, and preservation of missing data.
 - `javap` signatures against the resolved SDK `Vehicle-2.3.2.aar`.
 
 Separate workflow **VPE Android UI Smoke** launches an Android 14 emulator and checks:
@@ -49,7 +61,7 @@ Separate workflow **VPE Android UI Smoke** launches an Android 14 emulator and c
 - separate diagnostic screen,
 - no observed fatal AndroidRuntime crash.
 
-These are **Android UI and build checks**, not a substitute for Pleos Vehicle Service runtime integration testing.
+The UI smoke test additionally verifies the non-Automotive environment notice and the phone demo entry path. These are **Android UI and build checks**, not a substitute for Pleos Vehicle Service runtime integration testing.
 
 ## Code map
 
