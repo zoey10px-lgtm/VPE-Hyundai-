@@ -42,3 +42,12 @@ Native Android (Kotlin) prototype for a vehicle personality AI.
 - **SDK:** existing Pleos driver-door read remains a separate connection smoke test. Actual SDK data mapping to identity genesis is **not implemented**. No real vehicle identifier is available; demo key is `demo-vehicle`.
 - **No voice audio:** no STT, TTS or audio playback in v0.3.
 - **Verification:** source files were committed to GitHub; compilation, APK creation, runtime behavior, and actual SDK access are not yet verified.
+
+## v0.4: Event-gated automatic personality growth
+- Demo slider changes now call `observeVehicleData()` automatically; the manual learn button is removed.
+- `IdentityEngine.evolve` learns only when accumulated changes since the last learning event reach one of these thresholds: +100 km odometer, >=0.05 change in exploration or long-trip ratio, >=10 maintenance score points, or +1 year age.
+- Fuel changes update current short-term mood but do not trigger long-term learning.
+- Each accepted learning event performs one EMA update (alpha 0.05) and saves last-learned snapshot and learning event count. Re-reading identical input does not grow personality.
+- Initial voice blueprint stays unchanged.
+- **Current input source is still the on-screen demo sliders.** Pleos vehicle-property-to-snapshot mapping and live automatic SDK subscriptions are not implemented.
+- Android compilation, APK build and device test remain unverified.
