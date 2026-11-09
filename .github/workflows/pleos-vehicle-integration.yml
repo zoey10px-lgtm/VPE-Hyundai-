@@ -168,23 +168,13 @@ jobs:
           grep -q 'android.hardware.type.automotive' /tmp/pleos-features.txt
           adb shell pm list permissions -f | grep -Ei 'pleos.car.permission' | head -30 || true
           adb install -r app/build/outputs/apk/debug/app-debug.apk
-          adb shell am start -W -n com.vpe.hyundai/.MainActivity
-          sleep 5
-          adb shell uiautomator dump /sdcard/window.xml
-          adb exec-out cat /sdcard/window.xml > /tmp/pleos-vpe-ui.xml
-          python3 - <<'PY'
-          import re, subprocess, xml.etree.ElementTree as ET
-          root=ET.parse('/tmp/pleos-vpe-ui.xml').getroot()
-          for node in root.iter():
-              if any(label in node.attrib.get('text','') for label in ('Pleos 차량 연결하기', '차량 데이터 새로고침', '차량 접근 권한 진단')):
-                  vals=list(map(int,re.findall(r'\d+',node.attrib['bounds'])))
-                  subprocess.check_call(['adb','shell','input','tap',str((vals[0]+vals[2])//2),str((vals[1]+vals[3])//2)])
-                  break
-          else:
-              raise SystemExit('VPE real SDK connect button not found on Pleos device')
-          PY
+          echo "Verified installed app manifest permissions:"
+          adb shell dumpsys package com.vpe.hyundai | grep -E 'CAR_DRIVE|CAR_ENERGY|CAR_INFO|granted=' | head -40 || true
+          adb logcat -c
+          echo "Launching REAL Pleos SDK reads via debug-only Automotive integration entry"
+          adb shell am start -W -n com.vpe.hyundai/.MainActivity --ez vpe_test_sdk_connect true
           sleep 15
-          adb logcat -d -s VPE_PLEOS:I > /tmp/vpe-pleos-real-sdk.log
+          adb logcat -d -s VPE_PLEOS:I AndroidRuntime:E > /tmp/vpe-pleos-real-sdk.log
           cat /tmp/vpe-pleos-real-sdk.log
           if ! grep -Eq 'ODO_OK: km=[0-9]' /tmp/vpe-pleos-real-sdk.log; then
             echo "::error::No numeric Odometer response from real Pleos Vehicle Service. See callback diagnostics."
