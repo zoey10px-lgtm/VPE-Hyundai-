@@ -43,4 +43,7 @@ jobs:
           path: |
             /tmp/vpe_frame_1.png
             /tmp/vpe_frame_2.png
+            /tmp/vpe_demo.png
+            /tmp/vpe_chat.png
+            /tmp/vpe_diagnostics.png
             /tmp/vpe_runtime_errors.txt
