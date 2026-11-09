@@ -24,3 +24,11 @@ Native Android (Kotlin) prototype for a vehicle personality AI.
 - Apply stable long-term traits to voice generation, and temporary mood as modulation
 - Add scenario/unit tests for reproducibility, missing data, and threshold transitions
 - Connect LLM dialogue with persona state and a voice engine supporting expressive synthesis
+
+## Pleos SDK integration (v0.2)
+- Added official Pleos Maven repository and `ai.pleos.playground:Vehicle:2.3.2`.
+- Declared read permissions for relevant domains.
+- `PleosVehicleClient` uses the documented typed Vehicle session, capability check and read-only driver door position request, with error reporting and release on activity destruction.
+- Tap **Pleos SDK 연결 및 운전석 도어 조회** on a compatible Pleos emulator to test connectivity.
+- **Not yet connected to VPE persona inputs:** odometer, fuel, vehicle info, location, and maintenance history still use manual sliders. The door read is an SDK connectivity smoke test only.
+- SDK artifact resolution, compilation, device connection and API responses have **not been verified** in this environment. An APK has not been built.
