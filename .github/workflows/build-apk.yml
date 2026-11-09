@@ -39,6 +39,10 @@ jobs:
           else
             cp "$SDK_FILE" /tmp/vpe-pleos/classes.jar
           fi
+          for schema in ai.pleos.playground.vehicle.api.model.area.SeatArea ai.pleos.playground.vehicle.constant.unit.TemperatureUnit ai.pleos.playground.vehicle.listener.HvacTemperatureValueListener ai.pleos.playground.vehicle.listener.HvacTemperatureListener ai.pleos.playground.vehicle.listener.HvacPowerStateListener ai.pleos.playground.vehicle.listener.EvChargeSwitchStateListener; do
+            echo "== Class $schema =="
+            javap -classpath /tmp/vpe-pleos/classes.jar -p "$schema" || true
+          done
           for api in Odometer Fuel CarInfo EvBattery HVAC DrivingMode Door Safety Seat Window Light; do
             echo "== $api =="
             javap -classpath /tmp/vpe-pleos/classes.jar -p "ai.pleos.playground.vehicle.api.$api" | grep -E 'get|register|unregister|check' || true
