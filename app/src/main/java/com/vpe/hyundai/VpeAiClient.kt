@@ -23,7 +23,7 @@ object VpeAiClient {
         val connection = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = if (body == null) "GET" else "POST"
             connectTimeout = 10000
-            readTimeout = 30000
+            readTimeout = 45000
             doOutput = body != null
             setRequestProperty("Accept", "application/json")
             if (body != null) setRequestProperty("Content-Type", "application/json; charset=utf-8")
@@ -46,6 +46,14 @@ object VpeAiClient {
                     "INVALID_CREDENTIALS_FORMAT" -> "아이디 4~24자(영문/숫자/밑줄), 비밀번호 8자 이상으로 입력해 줘."
                     "LOGIN_REQUIRED" -> "로그인 세션이 만료됐어. 다시 로그인해 줘."
                     "OPENAI_NOT_CONFIGURED" -> "Render에 OpenAI API 키 등록이 필요해."
+                    "OPENAI_RATE_LIMIT" -> "OpenAI API 한도/잔액이 부족하거나 요청이 많아. API 결제 설정을 확인해 줘."
+                    "OPENAI_KEY_INVALID" -> "Render의 OpenAI API 키 인증에 실패했어. 등록한 키를 확인해 줘."
+                    "OPENAI_ACCESS_DENIED" -> "OpenAI 프로젝트에서 이 모델에 접근할 권한이 없어."
+                    "OPENAI_MODEL_UNAVAILABLE" -> "설정된 GPT 모델을 찾지 못했어."
+                    "OPENAI_INVALID_REQUEST" -> "GPT API 요청 형식에 문제가 있어. 서버 코드를 확인해야 해."
+                    "OPENAI_UPSTREAM_ERROR" -> "OpenAI 서버 응답 오류가 발생했어."
+                    "EMPTY_OPENAI_RESPONSE" -> "GPT가 빈 답변을 보내서 다시 요청해야 해."
+                    "REQUEST_FAILED" -> "서버 처리 오류가 발생했어."
                     else -> "서버 오류: $code"
                 })
             }
