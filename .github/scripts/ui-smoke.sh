@@ -63,6 +63,33 @@ grep -q 'Pleos 차량 연동 안내' /tmp/vpe_ui.xml
 # Demo button can be below the initial viewport on devices with taller home content.
 # tap_label scrolls to it before tapping.
 echo "PASS: Regular Android phone detected without claiming vehicle connection"
+
+# Validate the dedicated authentication pages before starting the demo.
+tap_label "로그인 / 회원가입"
+dump_ui
+grep -q 'VPE 로그인' /tmp/vpe_ui.xml
+echo "PASS: Dedicated login screen opens from home"
+adb exec-out screencap -p > /tmp/vpe_login_screen.png
+
+tap_label "회원가입"
+dump_ui
+grep -q 'VPE 회원가입' /tmp/vpe_ui.xml
+tap_label "비밀번호 확인"
+dump_ui
+grep -q '비밀번호 확인' /tmp/vpe_ui.xml
+adb exec-out screencap -p > /tmp/vpe_signup_screen.png
+echo "PASS: Dedicated signup screen includes password confirmation"
+
+tap_label "계정 만들고 시작하기"
+dump_ui
+grep -q '아이디는 한글' /tmp/vpe_ui.xml
+echo "PASS: Signup validates username and leaves inline error on screen"
+
+# Return to home without creating a real account.
+adb shell am force-stop com.vpe.hyundai
+adb shell am start -W -n com.vpe.hyundai/.MainActivity >/dev/null
+sleep 2
+
 tap_label "스마트폰에서 VPE 데모 시작"
 dump_ui
 grep -q '시연 차량 성향 분석 리포트' /tmp/vpe_ui.xml
