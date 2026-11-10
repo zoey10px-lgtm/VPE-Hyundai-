@@ -54,7 +54,7 @@ class MainActivity : Activity() {
     private var cachedReport = false
     private val accountPrefs get() = getSharedPreferences("vpe_account", MODE_PRIVATE)
     private fun accountName() = accountPrefs.getString("username", "").orEmpty()
-    private fun sessionToken() = accountPrefs.getString("token", "").orEmpty()
+    private fun sessionToken() = VpeSecureSession.read(this)
     private fun hasSession() = accountName().isNotBlank() && sessionToken().isNotBlank()
     private fun serverUrl() = getSharedPreferences("vpe_ai", MODE_PRIVATE)
         .getString("render_url", defaultAiServerUrl).orEmpty()
@@ -588,8 +588,14 @@ class MainActivity : Activity() {
                         store.clear()
                         hpeStore.clear()
                     }
-                    accountPrefs.edit().putString("username", nextAccount)
-                        .putString("token", data.getString("token")).apply()
+                    val saved = runCatching {
+                        VpeSecureSession.save(this, data.getString("token"))
+                    }
+                    if (saved.isFailure) {
+                        Toast.makeText(this, "보안 세션 저장 실패: 다시 로그인해 줘.", Toast.LENGTH_LONG).show()
+                        return@onSuccess
+                    }
+                    accountPrefs.edit().putString("username", nextAccount).apply()
                     activeChatScope = null
                     activateChatScope()
                     Toast.makeText(this, "VPE 계정 연결 완료!", Toast.LENGTH_SHORT).show()
@@ -604,6 +610,12 @@ class MainActivity : Activity() {
     }
 
     private fun logoutAccount() {
+        val oldToken = sessionToken()
+        val logoutUrl = serverUrl()
+        if (oldToken.isNotBlank()) {
+            Thread { runCatching { VpeAiClient.logout(logoutUrl, oldToken) } }.start()
+        }
+        VpeSecureSession.clear(this)
         accountPrefs.edit().clear().apply()
         identity = null
         hpe = null
