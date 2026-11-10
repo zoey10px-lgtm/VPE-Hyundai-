@@ -228,42 +228,7 @@ class MainActivity : Activity() {
         page.addView(label("차가, 나를 닮아가다.", 27f, ink, true))
         page.addView(gap(5))
         page.addView(label("함께 달린 시간이 하나의 성격이 되는 경험", 14f, secondary))
-        page.addView(gap(16))
-        val accountCard = card()
-        accountCard.addView(label("VPE 계정", 13f, teal, true))
-        accountCard.addView(gap(6))
-        accountCard.addView(label(
-            if (hasSession()) "로그인: " + accountName()
-            else "로그인해서 차량별 분석과 대화를 저장해 보세요.",
-            15f, ink, true))
-        accountCard.addView(gap(12))
-        if (hasSession()) {
-            accountCard.addView(button("내 차량 목록 새로고침", false) { refreshRemoteProfiles() })
-            accountCard.addView(gap(8))
-            accountCard.addView(button("로그아웃", false) { logoutAccount() })
-        } else {
-            accountCard.addView(button("로그인 / 회원가입") { showAccountDialog() })
-        }
-        page.addView(accountCard)
-        page.addView(gap(18))
-
-        if (hasSession() && remoteProfiles.length() > 0) {
-            val saved = card()
-            saved.addView(label("저장된 내 차량", 19f, ink, true))
-            saved.addView(gap(10))
-            for (i in 0 until remoteProfiles.length()) {
-                val item = remoteProfiles.optJSONObject(i) ?: continue
-                val vehicleName = item.optString("vehicleName", "내 차량")
-                val context = item.optJSONObject("context")
-                val mbti = context?.optString("mbti", "") ?: ""
-                saved.addView(button(vehicleName + "  ·  " + mbti + "  →", false) {
-                    restoreCloudProfile(item)
-                })
-                saved.addView(gap(9))
-            }
-            page.addView(saved)
-            page.addView(gap(18))
-        }
+        page.addView(gap(23))
 
         val hero = column(20).apply { background = gradient() }
         val header = row()
@@ -318,6 +283,44 @@ class MainActivity : Activity() {
         page.addView(gap(12))
         page.addView(button(if (!environment.automotive) "✦  스마트폰에서 VPE 데모 시작" else "✦  시연용 데모 체험", primary = false) { loadDemo() })
         page.addView(gap(24))
+
+        page.addView(gap(16))
+        val accountCard = card()
+        accountCard.addView(label("VPE 계정", 13f, teal, true))
+        accountCard.addView(gap(6))
+        accountCard.addView(label(
+            if (hasSession()) "로그인: " + accountName()
+            else "로그인해서 차량별 분석과 대화를 저장해 보세요.",
+            15f, ink, true))
+        accountCard.addView(gap(12))
+        if (hasSession()) {
+            accountCard.addView(button("내 차량 목록 새로고침", false) { refreshRemoteProfiles() })
+            accountCard.addView(gap(8))
+            accountCard.addView(button("로그아웃", false) { logoutAccount() })
+        } else {
+            accountCard.addView(button("로그인 / 회원가입") { showAccountDialog() })
+        }
+        page.addView(accountCard)
+        page.addView(gap(18))
+
+        if (hasSession() && remoteProfiles.length() > 0) {
+            val saved = card()
+            saved.addView(label("저장된 내 차량", 19f, ink, true))
+            saved.addView(gap(10))
+            for (i in 0 until remoteProfiles.length()) {
+                val item = remoteProfiles.optJSONObject(i) ?: continue
+                val vehicleName = item.optString("vehicleName", "내 차량")
+                val context = item.optJSONObject("context")
+                val mbti = context?.optString("mbti", "") ?: ""
+                saved.addView(button(vehicleName + "  ·  " + mbti + "  →", false) {
+                    restoreCloudProfile(item)
+                })
+                saved.addView(gap(9))
+            }
+            page.addView(saved)
+            page.addView(gap(18))
+        }
+
 
         if (identity != null && hpe != null) {
             val reportPreview = card()
