@@ -5,7 +5,6 @@ import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.res.ColorStateList
 import android.content.pm.ApplicationInfo
 import android.content.Intent
 import android.net.Uri
@@ -39,7 +38,6 @@ class MainActivity : Activity() {
     private lateinit var root: LinearLayout
     private lateinit var contentHost: LinearLayout
     private var currentTab = "home"
-    private var showPersonalityDetails = false
     private var identity: VpeIdentity? = null
     private var latest: VehicleReadings = VehicleReadings()
     private var observedSnapshot: VehicleSnapshot? = null
@@ -170,6 +168,7 @@ class MainActivity : Activity() {
         root.addView(contentHost, LinearLayout.LayoutParams(-1, 0, 1f))
         when (tab) {
             "chat" -> chatScreen()
+            "report" -> reportScreen()
             "diagnostics" -> diagnosticsScreen()
             else -> homeScreen()
         }
@@ -178,8 +177,8 @@ class MainActivity : Activity() {
             setPadding(d(10), d(9), d(10), d(13))
             setBackgroundColor(white)
         }
-        listOf(Triple("⌂", "홈", "home"), Triple("◉", "대화", "chat"),
-            Triple("✧", "진단", "diagnostics")).forEach { (symbol, name, target) ->
+        listOf(Triple("⌂", "홈", "home"), Triple("⬡", "리포트", "report"),
+            Triple("◉", "대화", "chat"), Triple("✧", "진단", "diagnostics")).forEach { (symbol, name, target) ->
             val active = target == tab
             val item = column().apply {
                 gravity = Gravity.CENTER
@@ -272,146 +271,18 @@ class MainActivity : Activity() {
         page.addView(button(if (!environment.automotive) "✦  스마트폰에서 VPE 데모 시작" else "✦  시연용 데모 체험", primary = false) { loadDemo() })
         page.addView(gap(24))
 
-        if (identity != null) {
-            val state = hpe
-            page.addView(label("나의 차량 캐릭터", 22f, ink, true))
-            page.addView(gap(12))
-            val profile = card()
-            profile.addView(row().apply {
-                addView(label("VEHICLE PERSONALITY", 12f, teal, true),
-                    LinearLayout.LayoutParams(0, -2, 1f))
-                addView(tag(if (demo) "데모 데이터" else "HPE 1.0"))
-            })
-            profile.addView(gap(18))
-            if (state != null) {
-                val core = state.core
-                val personaPhrase = listOf(
-                    if (core.axes[0] >= .5) "사람과의 대화에 활발하게 반응하고"
-                        else "차분하게 곁을 지키며",
-                    if (core.axes[1] >= .5) "새로운 가능성을 상상하고"
-                        else "익숙한 흐름을 소중히 여기고",
-                    if (core.axes[3] >= .5) "계획적인 리듬을 좋아하는 타입"
-                        else "상황에 맞춰 유연하게 움직이는 타입"
-                ).joinToString(" ")
-                profile.addView(label("이 차의 MBTI", 14f, secondary))
-                profile.addView(gap(3))
-                profile.addView(label(core.mbti, 47f, ink, true))
-                profile.addView(gap(7))
-                profile.addView(label(personaPhrase, 17f, ink, true))
-                profile.addView(gap(12))
-                profile.addView(label("보이스 스타일  ·  " +
-                    identity!!.voiceBlueprint.presentation + "형", 13f, secondary))
-                profile.addView(gap(17))
-
-                val featureNames = listOf(
-                    "활동성" to "활발한 에너지",
-                    "호기심" to "새로운 것에 대한 관심",
-                    "친밀감" to "따뜻한 태도",
-                    "자신감" to "당당한 표현",
-                    "신중함" to "차분한 판단",
-                    "장난기" to "유쾌한 반응",
-                    "표현력" to "풍부한 표현"
-                )
-                val strongest = core.traits.indices.sortedByDescending { core.traits[it] }.take(3)
-                profile.addView(label("두드러지는 성격", 16f, ink, true))
-                profile.addView(gap(8))
-                strongest.forEachIndexed { position, index ->
-                    val feature = row().apply {
-                        background = shape(Color.rgb(247, 247, 253), 15)
-                        setPadding(d(13), d(11), d(13), d(11))
-                    }
-                    feature.addView(label("0" + (position + 1), 13f, violet, true),
-                        LinearLayout.LayoutParams(d(30), -2))
-                    feature.addView(label(featureNames[index].first, 15f, ink, true),
-                        LinearLayout.LayoutParams(0, -2, 1f))
-                    feature.addView(label(featureNames[index].second, 12f, secondary))
-                    profile.addView(feature)
-                    if (position != strongest.lastIndex) profile.addView(gap(6))
-                }
-                profile.addView(gap(15))
-                profile.addView(label(
-                    "차량별 특징을 표현한 캐릭터 설정이며, 관측하지 못한 정보는 초기 시드로 구성돼요.",
-                    12f, secondary
-                ))
-                profile.addView(gap(13))
-                profile.addView(button(
-                    if (showPersonalityDetails) "성격 분석 접기  ⌃" else "성격 분석 자세히  ⌄",
-                    primary = false
-                ) {
-                    showPersonalityDetails = !showPersonalityDetails
-                    render("home")
-                })
-            } else {
-                profile.addView(label("차량 인격 분석을 준비 중이에요.", 16f, secondary))
-            }
-            profile.addView(gap(12))
-            profile.addView(button("VPE와 대화하기") { render("chat") })
-            page.addView(profile)
-            page.addView(gap(16))
-
-            if (state != null && showPersonalityDetails) {
-                val core = state.core
-                val details = card()
-                details.addView(label("성격 분석 상세", 20f, ink, true))
-                details.addView(gap(7))
-                details.addView(label("성격 축과 일곱 기질의 상대적 강도", 13f, secondary))
-                details.addView(gap(16))
-                val axes = listOf(
-                    Triple("E / I", "외향형", "내향형"),
-                    Triple("N / S", "직관형", "현실형"),
-                    Triple("T / F", "분석형", "공감형"),
-                    Triple("J / P", "계획형", "유연형")
-                )
-                axes.forEachIndexed { i, axis ->
-                    val heading = row()
-                    heading.addView(label(axis.first, 14f, ink, true),
-                        LinearLayout.LayoutParams(0, -2, 1f))
-                    heading.addView(label(
-                        if (core.axes[i] >= .5) axis.second else axis.third,
-                        14f, violet, true
-                    ))
-                    details.addView(heading)
-                    details.addView(gap(8))
-                    details.addView(traitMeter(core.axes[i]))
-                    details.addView(gap(17))
-                }
-                details.addView(label("7가지 장기 기질", 16f, ink, true))
-                details.addView(gap(13))
-                val names = listOf("활동성", "호기심", "친밀감", "자신감", "신중함", "장난기", "표현력")
-                names.forEachIndexed { i, name ->
-                    details.addView(label(name, 14f, ink, true))
-                    details.addView(gap(7))
-                    details.addView(traitMeter(core.traits[i]))
-                    details.addView(gap(14))
-                }
-                val sourceHint = when {
-                    core.confidence >= .75 -> "다양한 차량 관측 정보가 성격에 반영되고 있어요."
-                    core.confidence > 0.0 -> "일부 관측 정보와 초기 성격 설정을 함께 사용 중이에요."
-                    else -> "현재는 초기 성격 설정을 중심으로 구성돼 있어요."
-                }
-                details.addView(label(sourceHint, 13f, secondary))
-                page.addView(details)
-                page.addView(gap(16))
-            }
-
-            if (state != null) {
-                val mood = card()
-                mood.addView(label("지금의 기분", 15f, teal, true))
-                mood.addView(gap(8))
-                mood.addView(label(state.expression.headline, 27f, ink, true))
-                mood.addView(gap(12))
-                val speech = column(15).apply {
-                    background = shape(Color.rgb(244, 242, 255), 18)
-                }
-                speech.addView(label("“" + state.expression.utterance + "”", 17f, ink, true))
-                mood.addView(speech)
-                mood.addView(gap(14))
-                val shared = String.format(java.util.Locale.KOREA, "%,.0f km", state.memory.sharedKm)
-                mood.addView(label("함께 관측한 주행  " + shared +
-                    "    ·    주요 경험  " + state.memory.meaningfulEvents + "회", 13f, secondary))
-                page.addView(mood)
-                page.addView(gap(23))
-            }
+        if (identity != null && hpe != null) {
+            val reportPreview = card()
+            val vehicleTitle = storedVehicleName()
+            reportPreview.addView(label("차량 인격 분석 완료", 13f, teal, true))
+            reportPreview.addView(gap(7))
+            reportPreview.addView(label(vehicleTitle + " 성향 리포트", 22f, ink, true))
+            reportPreview.addView(gap(8))
+            reportPreview.addView(label("MBTI · 성격 키워드 · 7각형 레이더 차트", 14f, secondary))
+            reportPreview.addView(gap(15))
+            reportPreview.addView(button("내 차량 분석 리포트 열기") { render("report") })
+            page.addView(reportPreview)
+            page.addView(gap(23))
         }
 
         val distance = if (demo) observedSnapshot?.odometerKm else latest.odometerKm
@@ -465,14 +336,153 @@ class MainActivity : Activity() {
         ))
     }
 
-    private fun traitMeter(value: Double): ProgressBar =
-        ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            progress = (value.coerceIn(0.0, 1.0) * 100).toInt()
-            progressTintList = ColorStateList.valueOf(violet)
-            progressBackgroundTintList = ColorStateList.valueOf(Color.rgb(231, 233, 244))
-            layoutParams = LinearLayout.LayoutParams(-1, d(8))
+    /** Vehicle model isn't exposed by our confirmed Pleos getters. Allow a truthful local name. */
+    private fun storedVehicleName(): String {
+        val id = identity ?: return "내 차량"
+        val saved = getSharedPreferences("vpe_vehicle_names", MODE_PRIVATE)
+            .getString(id.vehicleKey, "").orEmpty().trim()
+        return saved.ifBlank { if (demo) "시연 차량" else "내 차량" }
+    }
+
+    private fun showVehicleNameDialog() {
+        val id = identity ?: return
+        val existing = getSharedPreferences("vpe_vehicle_names", MODE_PRIVATE)
+            .getString(id.vehicleKey, "").orEmpty()
+        val entry = EditText(this).apply {
+            hint = "예: 내 아이오닉 5, 우리 차"
+            setSingleLine(true)
+            setText(existing)
+            setSelection(text.length)
         }
+        AlertDialog.Builder(this)
+            .setTitle("차량 이름 지정")
+            .setMessage("현재 연동 SDK에서 차종명이 확인되지 않아, 원하는 차량 이름을 직접 정할 수 있어요.")
+            .setView(entry)
+            .setNegativeButton("취소", null)
+            .setPositiveButton("저장") { _, _ ->
+                val updated = entry.text.toString().trim().take(30)
+                getSharedPreferences("vpe_vehicle_names", MODE_PRIVATE).edit()
+                    .putString(id.vehicleKey, updated).apply()
+                render("report")
+            }
+            .show()
+    }
+
+    /** Full-screen report, distinct from Home / live vehicle data cards. */
+    private fun reportScreen() {
+        val page = scrollContent()
+        page.addView(label("MY VEHICLE  /  PERSONALITY REPORT", 12f, teal, true))
+        page.addView(gap(9))
+        val state = hpe
+        val currentIdentity = identity
+        if (state == null || currentIdentity == null) {
+            page.addView(label("차량 성향 분석 리포트", 26f, ink, true))
+            page.addView(gap(12))
+            page.addView(label("홈에서 차량 데이터를 연동하면 성격 분석 리포트가 이곳에 생성돼요.",
+                15f, secondary))
+            page.addView(gap(20))
+            page.addView(button("차량 연결하러 가기") { render("home") })
+            return
+        }
+
+        page.addView(label(storedVehicleName() + " 성향 분석 리포트", 26f, ink, true))
+        page.addView(gap(8))
+        page.addView(row().apply {
+            addView(tag(if (demo) "시연 데이터" else "실제 SDK 관측 기반",
+                Color.rgb(231, 243, 255), violet))
+            addView(label("  ·  HPE 1.0", 12f, secondary))
+        })
+        page.addView(gap(11))
+        page.addView(button("차량 이름 지정 / 수정", false) { showVehicleNameDialog() })
+        page.addView(gap(18))
+
+        val personality = card()
+        personality.addView(label("01   차량의 성격 유형", 14f, teal, true))
+        personality.addView(gap(13))
+        personality.addView(label("MBTI", 13f, secondary))
+        personality.addView(label(state.core.mbti, 52f, ink, true))
+        personality.addView(gap(10))
+        val axes = state.core.axes
+        val narrative = listOf(
+            if (axes[0] >= .5) "먼저 밝게 다가오고" else "차분하게 곁을 지키고",
+            if (axes[1] >= .5) "새로운 가능성에 호기심이 많으며"
+                else "익숙한 순간을 소중히 여기며",
+            if (axes[2] >= .5) "이성적으로 판단하고"
+                else "따뜻한 반응을 전하고",
+            if (axes[3] >= .5) "계획적인 리듬을 좋아하는 성격이야."
+                else "상황에 맞춰 유연하게 움직이는 성격이야."
+        ).joinToString(" ")
+        personality.addView(label(narrative, 17f, ink, true))
+        personality.addView(gap(12))
+        personality.addView(label(
+            "보이스 스타일  ·  " + currentIdentity.voiceBlueprint.presentation,
+            13f, secondary
+        ))
+        page.addView(personality)
+        page.addView(gap(15))
+
+        val traits = state.core.traits
+        val traitNames = listOf("활동성", "호기심", "친밀감", "자신감", "신중함", "장난기", "표현력")
+        val keywords = listOf("활기찬", "탐험가", "다정한", "당당한", "사려 깊은", "유쾌한", "표현이 풍부한")
+        val strongest = traits.indices.sortedByDescending { traits[it] }.take(3)
+
+        val highlights = card()
+        highlights.addView(label("02   성격 키워드", 14f, teal, true))
+        highlights.addView(gap(10))
+        highlights.addView(label("이 차량을 가장 잘 표현하는 세 가지 특징", 17f, ink, true))
+        highlights.addView(gap(14))
+        strongest.forEachIndexed { place, index ->
+            val feature = row().apply {
+                background = shape(Color.rgb(243, 242, 254), 16)
+                setPadding(d(15), d(13), d(14), d(13))
+            }
+            feature.addView(label("0" + (place + 1), 13f, violet, true),
+                LinearLayout.LayoutParams(d(37), -2))
+            feature.addView(label("#" + keywords[index], 17f, ink, true),
+                LinearLayout.LayoutParams(0, -2, 1f))
+            feature.addView(label(traitNames[index], 13f, secondary))
+            highlights.addView(feature)
+            if (place != strongest.lastIndex) highlights.addView(gap(8))
+        }
+        page.addView(highlights)
+        page.addView(gap(15))
+
+        val radarCard = card()
+        radarCard.addView(label("03   성격 밸런스", 14f, teal, true))
+        radarCard.addView(gap(7))
+        radarCard.addView(label("7가지 성향 레이더 차트", 21f, ink, true))
+        radarCard.addView(gap(8))
+        radarCard.addView(label("각 방향의 바깥쪽에 가까울수록 해당 기질이 강해져요.",
+            13f, secondary))
+        radarCard.addView(gap(12))
+        radarCard.addView(VpeRadarChartView(this, traits),
+            LinearLayout.LayoutParams(-1, d(340)))
+        radarCard.addView(gap(12))
+        radarCard.addView(label(
+            "차량별 성격을 나타내는 상대적 지표이며, 실측되지 않은 기질은 초기 설정값을 포함해요.",
+            12f, secondary
+        ))
+        page.addView(radarCard)
+        page.addView(gap(15))
+
+        val feeling = card()
+        feeling.addView(label("04   지금 이 차의 기분", 14f, teal, true))
+        feeling.addView(gap(8))
+        feeling.addView(label(state.expression.headline, 26f, ink, true))
+        feeling.addView(gap(12))
+        val quote = column(16).apply { background = shape(Color.rgb(245, 243, 255), 18) }
+        quote.addView(label("“" + state.expression.utterance + "”", 16f, ink, true))
+        feeling.addView(quote)
+        feeling.addView(gap(13))
+        feeling.addView(label("함께 관측한 주행 " +
+            String.format(java.util.Locale.KOREA, "%,.0f km", state.memory.sharedKm) +
+            "  ·  주요 경험 " + state.memory.meaningfulEvents + "회", 13f, secondary))
+        page.addView(feeling)
+        page.addView(gap(16))
+        page.addView(button("이 차와 대화하기") { render("chat") })
+        page.addView(gap(11))
+        page.addView(button("홈으로 돌아가기", false) { render("home") })
+    }
 
     private fun metric(title: String, value: String, color: Int): LinearLayout =
         column(17).apply {
@@ -877,7 +887,7 @@ class MainActivity : Activity() {
                                 identity?.vehicleKey != latest.vehicleKey) {
                                 if (buildIdentityFromSdkReadings()) {
                                     connectionNote = "차량 식별과 주행거리 수신 완료 · VPE Identity 생성"
-                                    render("home")
+                                    render("report")
                                 }
                             } else if (identity != null) {
                                 applyLiveSdkReadings()
@@ -895,7 +905,8 @@ class MainActivity : Activity() {
     private fun finishConnection(serial: Int, timeout: Boolean) {
         if (serial != requestSerial || !connecting) return
         connecting = false
-        if (buildIdentityFromSdkReadings()) {
+        val generated = buildIdentityFromSdkReadings()
+        if (generated) {
             connectionNote = if (latest.energyPercent() == null)
                 "차량 주행거리와 식별자 확인 완료 · 에너지 데이터는 미수신"
             else "Pleos Vehicle Service 데이터 수신 및 VPE Identity 생성 완료"
@@ -909,7 +920,7 @@ class MainActivity : Activity() {
                 else -> "차량 SDK 응답 미수신 · 진단 화면에서 원인을 확인하세요."
             }
         }
-        render("home")
+        render(if (generated) "report" else "home")
     }
 
     /** Create a persistent vehicle persona only from observed Odometer + real vehicle ID. */
@@ -952,7 +963,7 @@ class MainActivity : Activity() {
             store.save(evolved)
         }
         updateHumanPersonality()
-        if (currentTab == "home" || currentTab == "diagnostics") render(currentTab)
+        if (currentTab == "home" || currentTab == "diagnostics" || currentTab == "report") render(currentTab)
     }
 
     private fun updateHumanPersonality() {
@@ -991,7 +1002,7 @@ class MainActivity : Activity() {
         updateHumanPersonality()
         connectionNote = "가상의 차량 데이터로 UI와 성격 알고리즘을 체험하고 있어요."
         diagnosticLogs.clear()
-        render("home")
+        render("report")
     }
 
     private fun loadMessages() {
