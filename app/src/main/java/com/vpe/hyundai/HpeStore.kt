@@ -70,4 +70,6 @@ class HpeStore(context: Context) {
             HumanPersonalityEngine.express(core,affect,s), emptyList(),s)
         } catch (_: Exception) { null }
     }
+    fun clear() { prefs.edit().remove("state").apply() }
+
 }
