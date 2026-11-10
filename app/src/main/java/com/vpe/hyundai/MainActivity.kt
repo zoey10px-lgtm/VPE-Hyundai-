@@ -601,7 +601,7 @@ class MainActivity : Activity() {
                     Toast.makeText(this, "VPE 계정 연결 완료!", Toast.LENGTH_SHORT).show()
                     if (identity != null && hpe != null) syncCurrentVehicle(force = true)
                     refreshRemoteProfiles()
-                    render("home")
+                    render(if (currentTab == "chat") "chat" else "home")
                 }.onFailure { error ->
                     Toast.makeText(this, error.message ?: "로그인 오류", Toast.LENGTH_LONG).show()
                 }
@@ -759,8 +759,8 @@ class MainActivity : Activity() {
         title.addView(label("내 차의 성격과 오늘의 상태를 알아보세요", 13f, secondary))
         title.addView(gap(9))
         title.addView(label(
-            if (hasSession()) "개인 계정 " + accountName() + " · 차량별 대화 기록 저장"
-            else "로컬 체험 모드 · 로그인하면 클라우드에 차량별로 대화를 저장해요.",
+            if (hasSession()) "GPT 연결 준비 · " + accountName() + " 계정에 차량별 대화 저장"
+            else "GPT 대화는 로그인 후 이용해요. 로그인 전에는 로컬 체험 답변을 제공해요.",
             12f, if (hasSession()) teal else secondary
         ))
         title.addView(gap(8))
@@ -936,8 +936,15 @@ class MainActivity : Activity() {
         val canUseGpt = id != null && state != null && token.isNotBlank()
         messages.add("나" to message)
         val replyIndex = messages.size
-        messages.add("VPE" to if (canUseGpt) "GPT가 답변을 만들고 있어요…"
-            else "[로컬 체험 응답] " + reply(message))
+        val text = when {
+            canUseGpt -> "GPT가 답변을 만들고 있어요…"
+            id != null && state != null && token.isBlank() ->
+                "GPT 대화를 사용하려면 먼저 회원가입 또는 로그인을 해 줘. " +
+                "위의 ‘로그인 / 회원가입’ 버튼을 누르면 돼.\n\n" +
+                "[데모 로컬 응답] " + reply(message)
+            else -> "[로컬 체험 응답] " + reply(message)
+        }
+        messages.add("VPE" to text)
         saveMessages()
         if (currentTab == "chat") render("chat")
         if (!canUseGpt || state == null || id == null) return
