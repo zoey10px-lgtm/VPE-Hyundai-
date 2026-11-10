@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { databaseConfigured } from "./db.mjs";
 import { handleV2 } from "./account-api.mjs";
+import { verifyDatabaseStartup } from "./preflight.mjs";
 
 const PORT = Number(process.env.PORT || 10000);
 const MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
@@ -144,4 +145,7 @@ const httpServer=createServer(async(req,res)=>{
       ?error:"REQUEST_FAILED"});
   }
 });
-httpServer.listen(PORT,"0.0.0.0",()=>console.log(`VPE backend listening on ${PORT}`));
+httpServer.listen(PORT,"0.0.0.0",()=>{
+  console.log(`VPE backend listening on ${PORT}`);
+  void verifyDatabaseStartup();
+});
