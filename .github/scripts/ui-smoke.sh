@@ -88,8 +88,11 @@ adb exec-out screencap -p > /tmp/vpe_report_radar.png
 tap_label "홈"
 dump_ui
 grep -q '데모 페르소나가 준비됐어요' /tmp/vpe_ui.xml
-grep -q '내 차량 분석 리포트 열기' /tmp/vpe_ui.xml
-echo "PASS: Home keeps vehicle summary and a report entry"
+tap_label "내 차량 분석 리포트 열기"
+dump_ui
+grep -q '시연 차량 성향 분석 리포트' /tmp/vpe_ui.xml
+echo "PASS: Home report entry opens saved vehicle report"
+tap_label "홈"
 tap_label "리포트"
 dump_ui
 grep -q '시연 차량 성향 분석 리포트' /tmp/vpe_ui.xml
