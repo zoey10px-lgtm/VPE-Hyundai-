@@ -46,6 +46,18 @@ class MainActivity : Activity() {
     private var connectionNote = "아직 차량과 연결되지 않았어요."
     private val defaultAiServerUrl = "https://vpe-hyundai.onrender.com"
     private val messages = mutableListOf<Pair<String, String>>()
+    private var remoteProfiles = JSONArray()
+    private var activeChatScope: String? = null
+    private var historyLoadSerial = 0
+    private var pendingChats = 0
+    private var lastProfileSyncAt = 0L
+    private var cachedReport = false
+    private val accountPrefs get() = getSharedPreferences("vpe_account", MODE_PRIVATE)
+    private fun accountName() = accountPrefs.getString("username", "").orEmpty()
+    private fun sessionToken() = accountPrefs.getString("token", "").orEmpty()
+    private fun hasSession() = accountName().isNotBlank() && sessionToken().isNotBlank()
+    private fun serverUrl() = getSharedPreferences("vpe_ai", MODE_PRIVATE)
+        .getString("render_url", defaultAiServerUrl).orEmpty()
     private var liveMessages: LinearLayout? = null
     private var liveChatScroll: ScrollView? = null
     private val diagnosticLogs = mutableListOf<String>()
@@ -80,9 +92,10 @@ class MainActivity : Activity() {
             identity != null -> "저장된 VPE를 불러왔어요. 실시간 차량 정보는 새로 연결해 주세요."
             else -> "Pleos 차량과 연결할 준비가 됐어요."
         }
-        loadMessages()
-        if (messages.isEmpty()) messages.add("VPE" to "안녕! 내 차의 데이터를 연결하면 우리만의 성격을 만들어 볼 수 있어. 먼저 홈에서 연결해 줘.")
+        activateChatScope()
+        if (messages.isEmpty()) messages.add("VPE" to "안녕! 차량을 연결하면 우리만의 성격이 탄생해.")
         render("home")
+        if (hasSession()) refreshRemoteProfiles()
         // Debug-only integration test hook: launch the real SDK request without UI
         // automation, which is unavailable in some Automotive headless environments.
         // No vehicle values are injected or simulated by this hook.
@@ -215,7 +228,42 @@ class MainActivity : Activity() {
         page.addView(label("차가, 나를 닮아가다.", 27f, ink, true))
         page.addView(gap(5))
         page.addView(label("함께 달린 시간이 하나의 성격이 되는 경험", 14f, secondary))
-        page.addView(gap(23))
+        page.addView(gap(16))
+        val accountCard = card()
+        accountCard.addView(label("VPE 계정", 13f, teal, true))
+        accountCard.addView(gap(6))
+        accountCard.addView(label(
+            if (hasSession()) "로그인: " + accountName()
+            else "로그인해서 차량별 분석과 대화를 저장해 보세요.",
+            15f, ink, true))
+        accountCard.addView(gap(12))
+        if (hasSession()) {
+            accountCard.addView(button("내 차량 목록 새로고침", false) { refreshRemoteProfiles() })
+            accountCard.addView(gap(8))
+            accountCard.addView(button("로그아웃", false) { logoutAccount() })
+        } else {
+            accountCard.addView(button("로그인 / 회원가입") { showAccountDialog() })
+        }
+        page.addView(accountCard)
+        page.addView(gap(18))
+
+        if (hasSession() && remoteProfiles.length() > 0) {
+            val saved = card()
+            saved.addView(label("저장된 내 차량", 19f, ink, true))
+            saved.addView(gap(10))
+            for (i in 0 until remoteProfiles.length()) {
+                val item = remoteProfiles.optJSONObject(i) ?: continue
+                val vehicleName = item.optString("vehicleName", "내 차량")
+                val context = item.optJSONObject("context")
+                val mbti = context?.optString("mbti", "") ?: ""
+                saved.addView(button(vehicleName + "  ·  " + mbti + "  →", false) {
+                    restoreCloudProfile(item)
+                })
+                saved.addView(gap(9))
+            }
+            page.addView(saved)
+            page.addView(gap(18))
+        }
 
         val hero = column(20).apply { background = gradient() }
         val header = row()
@@ -482,6 +530,171 @@ class MainActivity : Activity() {
         page.addView(button("이 차와 대화하기") { render("chat") })
         page.addView(gap(11))
         page.addView(button("홈으로 돌아가기", false) { render("home") })
+    }
+
+    private fun showAccountDialog() {
+        val form = column(17)
+        val username = EditText(this).apply {
+            hint = "아이디 (영문/숫자/밑줄 4~24자)"
+            setSingleLine(true)
+            setText(accountName())
+        }
+        val password = EditText(this).apply {
+            hint = "비밀번호 (8자 이상)"
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        form.addView(label("아이디", 14f, ink, true))
+        form.addView(username)
+        form.addView(gap(10))
+        form.addView(label("비밀번호", 14f, ink, true))
+        form.addView(password)
+        AlertDialog.Builder(this)
+            .setTitle("VPE 계정")
+            .setMessage("차량별 성향과 대화 기록을 개인 계정에 저장해요.")
+            .setView(form)
+            .setPositiveButton("로그인") { _, _ ->
+                submitAccount(username.text.toString(), password.text.toString(), false)
+            }
+            .setNeutralButton("회원가입") { _, _ ->
+                submitAccount(username.text.toString(), password.text.toString(), true)
+            }
+            .setNegativeButton("취소", null)
+            .show()
+    }
+
+    private fun submitAccount(username: String, password: String, register: Boolean) {
+        val previousAccount = accountName()
+        Thread {
+            val result = runCatching {
+                VpeAiClient.login(serverUrl(), username.trim(), password, register)
+            }
+            runOnUiThread {
+                result.onSuccess { data ->
+                    val nextAccount = data.getString("username")
+                    if (previousAccount.isNotEmpty() && previousAccount != nextAccount) {
+                        identity = null
+                        hpe = null
+                        observedSnapshot = null
+                        latest = VehicleReadings()
+                        cachedReport = false
+                        store.clear()
+                        hpeStore.clear()
+                    }
+                    accountPrefs.edit().putString("username", nextAccount)
+                        .putString("token", data.getString("token")).apply()
+                    activeChatScope = null
+                    activateChatScope()
+                    Toast.makeText(this, "VPE 계정 연결 완료!", Toast.LENGTH_SHORT).show()
+                    if (identity != null && hpe != null) syncCurrentVehicle(force = true)
+                    refreshRemoteProfiles()
+                    render("home")
+                }.onFailure { error ->
+                    Toast.makeText(this, error.message ?: "로그인 오류", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun logoutAccount() {
+        accountPrefs.edit().clear().apply()
+        identity = null
+        hpe = null
+        latest = VehicleReadings()
+        observedSnapshot = null
+        cachedReport = false
+        demo = false
+        remoteProfiles = JSONArray()
+        store.clear()
+        hpeStore.clear()
+        messages.clear()
+        activeChatScope = null
+        ++historyLoadSerial
+        render("home")
+    }
+
+    private fun refreshRemoteProfiles() {
+        val username = accountName()
+        val token = sessionToken()
+        if (token.isBlank()) return
+        Thread {
+            val result = runCatching { VpeAiClient.myVehicles(serverUrl(), token) }
+            runOnUiThread {
+                if (accountName() != username) return@runOnUiThread
+                result.onSuccess {
+                    remoteProfiles = it
+                    if (currentTab == "home") render("home")
+                }.onFailure {
+                    Toast.makeText(this, it.message ?: "차량 목록 조회 실패", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun restoreCloudProfile(profile: JSONObject) {
+        val key = profile.optString("vehicleKey")
+        val ctx = profile.optJSONObject("context") ?: return
+        if (key.isBlank()) return
+        val v = ctx.optJSONObject("vehicle") ?: JSONObject()
+        val distance = v.optDouble("odometerKm", Double.NaN).takeIf { it.isFinite() }
+        val energy = v.optDouble("energyPercent", Double.NaN).takeIf { it.isFinite() }
+        val snapshot = VehicleSnapshot(10.0, distance ?: 0.0, energy ?: 50.0, 50.0, 0.5, 0.5)
+        identity = IdentityEngine.generate(key, snapshot)
+        observedSnapshot = if (ctx.optBoolean("demo", false)) snapshot else null
+        demo = ctx.optBoolean("demo", false)
+        latest = VehicleReadings()
+        cachedReport = true
+        val seed = HumanPersonalityEngine.makeCore(HpeSignals(key, distance, energy))
+        val ax = ctx.optJSONArray("axes")
+        val axes = if (ax != null && ax.length() == 4)
+            (0 until 4).map { ax.optDouble(it, 0.5).coerceIn(0.0, 1.0) }
+            else seed.axes
+        val tr = ctx.optJSONObject("traits") ?: JSONObject()
+        val keys = listOf("activity", "curiosity", "warmth", "confidence", "caution", "playfulness", "expressiveness")
+        val traits = keys.mapIndexed { i, name -> tr.optDouble(name, seed.traits[i]).coerceIn(0.0, 1.0) }
+        val core = HpeCore(axes, traits, ctx.optDouble("evidenceCoverage", 0.0))
+        val m = ctx.optJSONObject("memory") ?: JSONObject()
+        val highlights = m.optJSONArray("highlights") ?: JSONArray()
+        val memory = HpeMemory(sharedKm = m.optDouble("sharedKm", 0.0),
+            meaningfulEvents = m.optInt("meaningfulEvents", 0),
+            highlights = (0 until highlights.length()).map { highlights.optString(it) })
+        val signals = HpeSignals(key, distance, energy,
+            v.optDouble("actualCabinC", Double.NaN).takeIf { it.isFinite() },
+            v.optDouble("targetCabinC", Double.NaN).takeIf { it.isFinite() })
+        val appraisal = HumanPersonalityEngine.appraise(signals)
+        val mood = HumanPersonalityEngine.affect(appraisal, signals)
+        hpe = HpeState(key, core, memory, mood,
+            HumanPersonalityEngine.express(core, mood, signals),
+            listOf("계정에 저장된 마지막 차량 분석 결과"), signals)
+        getSharedPreferences("vpe_vehicle_names", MODE_PRIVATE).edit()
+            .putString(key, profile.optString("vehicleName", "내 차량")).apply()
+        activateChatScope()
+        render("report")
+    }
+
+    private fun syncCurrentVehicle(force: Boolean = false) {
+        val user = accountName()
+        val token = sessionToken()
+        val state = hpe ?: return
+        if (token.isBlank()) return
+        val now = System.currentTimeMillis()
+        if (!force && now - lastProfileSyncAt < 20000L) return
+        lastProfileSyncAt = now
+        val key = state.key
+        val context = aiContext(state)
+        val name = storedVehicleName()
+        Thread {
+            val result = runCatching {
+                VpeAiClient.saveVehicle(serverUrl(), token, key, name, context)
+            }
+            runOnUiThread {
+                if (accountName() != user) return@runOnUiThread
+                result.onSuccess { refreshRemoteProfiles() }
+                    .onFailure {
+                        Toast.makeText(this, "차량 저장 실패: " + (it.message ?: ""), Toast.LENGTH_LONG).show()
+                    }
+            }
+        }.start()
     }
 
     private fun metric(title: String, value: String, color: Int): LinearLayout =
