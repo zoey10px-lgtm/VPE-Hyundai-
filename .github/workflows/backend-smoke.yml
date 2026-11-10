@@ -1,0 +1,29 @@
+name: VPE GPT backend smoke
+on:
+  push:
+    paths:
+      - 'server/**'
+      - '.github/workflows/backend-smoke.yml'
+  workflow_dispatch:
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate server syntax
+        run: node --check server/index.mjs
+      - name: Check auth and health without real OpenAI key
+        shell: bash
+        run: |
+          VPE_ACCESS_TOKEN=local-smoke-token PORT=10081 node server/index.mjs > /tmp/vpe-node.log 2>&1 &
+          pid=$!
+          trap 'kill $pid 2>/dev/null || true' EXIT
+          for i in {1..30}; do curl --fail --silent http://127.0.0.1:10081/health > /tmp/health.json && break; sleep .2; done
+          node -e "const j=require('/tmp/health.json'); if(!j.ok || !j.accessConfigured || j.openaiConfigured) process.exit(1)"
+          status=$(curl -s -o /tmp/unauth.json -w '%{http_code}' -X POST http://127.0.0.1:10081/api/chat -H 'Content-Type: application/json' -d '{"message":"hi"}')
+          test "$status" = "401"
+          status=$(curl -s -o /tmp/nokey.json -w '%{http_code}' -X POST http://127.0.0.1:10081/api/chat -H 'Authorization: Bearer local-smoke-token' -H 'Content-Type: application/json' -d '{"message":"hi","context":{}}')
+          test "$status" = "503"
