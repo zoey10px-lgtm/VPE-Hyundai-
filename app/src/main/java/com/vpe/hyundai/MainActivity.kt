@@ -680,7 +680,7 @@ class MainActivity : Activity() {
 
         formCard.addView(gap(16))
         val feedback = label("", 13f, Color.rgb(181, 58, 72), true).apply {
-            visibility = View.GONE
+            this.visibility = View.GONE
             setPadding(d(5), d(8), d(5), d(12))
         }
         formCard.addView(feedback)
