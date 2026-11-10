@@ -108,6 +108,26 @@ export async function handleV2(req,res,url,body,callModel) {
     await db.query("DELETE FROM vpe_sessions WHERE user_id=$1 AND token_hash=$2",[user.id,sha(token)]);
     return json(res,200,{ok:true});
   }
+  // Self-service account deletion; also enables end-to-end smoke tests to clean up.
+  if(req.method==="POST" && path==="/api/auth/delete") {
+    if(body?.confirm!=="DELETE_MY_ACCOUNT" || typeof body?.password!=="string") {
+      return json(res,400,{error:"DELETE_CONFIRMATION_REQUIRED"});
+    }
+    const db=await database();
+    const match=await db.query(
+      "SELECT password_salt,password_hash FROM vpe_accounts WHERE id=$1",
+      [user.id]
+    );
+    if(!match.rows.length) return json(res,401,{error:"LOGIN_REQUIRED"});
+    const record=match.rows[0];
+    const expected=Buffer.from(record.password_hash,"hex");
+    const actual=scryptSync(body.password,record.password_salt,64);
+    if(expected.length!==actual.length || !timingSafeEqual(expected,actual)) {
+      return json(res,401,{error:"INVALID_LOGIN"});
+    }
+    await db.query("DELETE FROM vpe_accounts WHERE id=$1",[user.id]);
+    return json(res,200,{deleted:true});
+  }
   if(req.method==="GET" && path==="/api/vehicles") {
     const db=await database();
     const r=await db.query(
