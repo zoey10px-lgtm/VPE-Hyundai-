@@ -43,7 +43,7 @@ object VpeAiClient {
                     "DATABASE_NOT_CONFIGURED" -> "VPE 데이터베이스 설정이 아직 완료되지 않았어."
                     "INVALID_LOGIN" -> "아이디 또는 비밀번호를 확인해 줘."
                     "USERNAME_EXISTS" -> "이미 사용 중인 아이디야."
-                    "INVALID_CREDENTIALS_FORMAT" -> "아이디 4~24자(영문/숫자/밑줄), 비밀번호 8자 이상으로 입력해 줘."
+                    "INVALID_CREDENTIALS_FORMAT" -> "아이디 2~24자(한글·영문·숫자·_), 비밀번호 8~128자로 입력해 줘."
                     "LOGIN_REQUIRED" -> "로그인 세션이 만료됐어. 다시 로그인해 줘."
                     "OPENAI_NOT_CONFIGURED" -> "Render에 OpenAI API 키 등록이 필요해."
                     "OPENAI_RATE_LIMIT" -> "OpenAI API 한도/잔액이 부족하거나 요청이 많아. API 결제 설정을 확인해 줘."
