@@ -58,9 +58,35 @@ grep -q 'Pleos 차량 연동 안내' /tmp/vpe_ui.xml
 echo "PASS: Regular Android phone detected without claiming vehicle connection"
 tap_label "스마트폰에서 VPE 데모 시작"
 dump_ui
+grep -q '시연 차량 성향 분석 리포트' /tmp/vpe_ui.xml
+grep -q 'MBTI' /tmp/vpe_ui.xml
+echo "PASS: Demo generates and automatically opens the separate personality report"
+adb exec-out screencap -p > /tmp/vpe_report_top.png
+
+adb shell input swipe 320 650 320 260 470
+sleep 1
+dump_ui
+grep -q '성격 키워드' /tmp/vpe_ui.xml
+echo "PASS: Report has personality keyword section"
+adb exec-out screencap -p > /tmp/vpe_report_keywords.png
+
+adb shell input swipe 320 650 320 225 470
+sleep 1
+dump_ui
+grep -q '7가지 성향 레이더 차트' /tmp/vpe_ui.xml
+grep -q '차량 성향 레이더 차트' /tmp/vpe_ui.xml
+echo "PASS: Radar chart contains seven computed personality dimensions"
+adb exec-out screencap -p > /tmp/vpe_report_radar.png
+
+tap_label "홈"
+dump_ui
 grep -q '데모 페르소나가 준비됐어요' /tmp/vpe_ui.xml
-echo "PASS: Demo mode produced visible persona"
-adb exec-out screencap -p > /tmp/vpe_demo.png
+grep -q '내 차량 분석 리포트 열기' /tmp/vpe_ui.xml
+echo "PASS: Home keeps vehicle summary and a report entry"
+tap_label "리포트"
+dump_ui
+grep -q '시연 차량 성향 분석 리포트' /tmp/vpe_ui.xml
+echo "PASS: Dedicated report accessible from navigation"
 
 tap_label "대화"
 dump_ui
