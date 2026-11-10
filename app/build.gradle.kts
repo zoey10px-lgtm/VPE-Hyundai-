@@ -9,8 +9,8 @@ android {
         applicationId = "com.vpe.hyundai"
         minSdk = 28
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.9.0"
+        versionCode = 12
+        versionName = "1.0.0"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
