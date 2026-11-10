@@ -1,6 +1,24 @@
 # VPE Hyundai · Vehicle Persona Engine
 
-**Latest: v0.6.0 — Human Personality Engine 1.0**
+**Latest: v1.0.0 — accounts, cloud-ready multi-vehicle profiles and GPT personality**
+
+New in v1.0.0:
+- Login/register UI for individual VPE accounts (passwords hashed on server, session tokens encrypted on Android).
+- Full vehicle HPE report and snapshot ready for PostgreSQL persistence; saved vehicle list and manual display names.
+- Chat history keyed by **account + vehicle** both locally and in PostgreSQL, preventing conversation mixing.
+- GPT expression rules use HPE-computed MBTI, all 7 long-term traits, current mood and the vehicle's name. The server never invents a new HPE identity.
+- Separate vehicle personality report screen with a 7-axis radar chart.
+- **Backend database activation pending:** Render workspace already has an active free PostgreSQL database for another project. Only one free DB can be active. See [server database setup](server/README.md) before using registration/cloud sync. Old APK local/demo flows remain available.
+
+### Architecture
+
+`Pleos Vehicle SDK → HPE traits/memory → VPE Android → Render Node API → PostgreSQL (account/vehicle/chat) + OpenAI Responses API`
+
+The existing app's HPE engine and Pleos SDK bridge are preserved. New PostgreSQL tables are created automatically once a dedicated `DATABASE_URL` is configured and Render installs the `pg` dependency.
+
+---
+
+**Historical release: v0.6.0 — Human Personality Engine 1.0**
 
 Six-stage **psychology-inspired vehicle persona engine**: actual Pleos signals → features → deterministic MBTI and 7 long-term traits → observed experience/memory → current needs and cognitive appraisal → expression. MBTI is a fictional character label, not a validated human psychometric inference.
 
