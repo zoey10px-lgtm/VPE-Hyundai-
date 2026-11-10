@@ -129,6 +129,9 @@ const httpServer=createServer(async(req,res)=>{
       const result=await callModel(body.message.trim(),body.context,body.history);
       return respond(res,200,{reply:result,model:MODEL});
     }
+    if(path==="/api/chat" && !databaseConfigured() && !req.headers.authorization) {
+      return respond(res,401,{error:"LOGIN_REQUIRED"});
+    }
     return await handleV2(req,res,url,body,callModel);
   }catch(err){
     const error=err?.message||"REQUEST_FAILED";
