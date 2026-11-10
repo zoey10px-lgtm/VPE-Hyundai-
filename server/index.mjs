@@ -122,7 +122,7 @@ const httpServer=createServer(async(req,res)=>{
   if(rateLimited(ip,isAuth?8:40)) return respond(res,429,{error:"RATE_LIMITED"});
   try{
     const body=req.method==="POST"?await readBody(req):{};
-    if(req.method==="POST" && path==="/api/chat" && legacyAuthorized(req.headers.authorization)){
+    if(req.method==="POST" && path==="/api/chat" && !databaseConfigured() && legacyAuthorized(req.headers.authorization)){
       if(typeof body?.message!=="string" || !body.message.trim() || body.message.length>1000 ||
          !body.context || typeof body.context!=="object" || Array.isArray(body.context))
         return respond(res,400,{error:"INVALID_CHAT_REQUEST"});
