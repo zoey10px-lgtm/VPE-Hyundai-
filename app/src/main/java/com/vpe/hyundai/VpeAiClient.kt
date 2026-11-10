@@ -5,51 +5,91 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 
-/** Requests GPT through the user's Render HTTPS backend. Never stores an OpenAI API key. */
+/** Calls Render over HTTPS. Neither the password nor OpenAI API key is stored in source. */
 object VpeAiClient {
-    fun ask(
+    private fun request(
         baseUrl: String,
-        accessToken: String,
-        message: String,
-        context: JSONObject,
-        history: JSONArray
-    ): String {
+        route: String,
+        token: String? = null,
+        body: JSONObject? = null
+    ): JSONObject {
         val normalized = baseUrl.trim().trimEnd('/')
-        val endpoint = URL("$normalized/api/chat")
-        require(endpoint.protocol == "https" && endpoint.host.isNotBlank()) {
-            "Render 주소는 https:// 로 시작해야 해."
+        val url = URL(normalized + route)
+        require(url.protocol == "https" && url.host.isNotBlank()) {
+            "서버 주소는 https:// 로 시작해야 해."
         }
-        require(accessToken.isNotBlank()) { "VPE 접속 토큰을 등록해 줘." }
-
-        val connection = (endpoint.openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
+        val connection = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = if (body == null) "GET" else "POST"
             connectTimeout = 10000
             readTimeout = 30000
-            doOutput = true
-            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            doOutput = body != null
             setRequestProperty("Accept", "application/json")
-            setRequestProperty("Authorization", "Bearer $accessToken")
+            if (body != null) setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            if (!token.isNullOrEmpty()) setRequestProperty("Authorization", "Bearer $token")
         }
         try {
-            val payload = JSONObject()
-                .put("message", message)
-                .put("context", context)
-                .put("history", history)
-                .toString()
-            connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
-            val status = connection.responseCode
-            val responseText = (if (status in 200..299) connection.inputStream else connection.errorStream)
-                ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            val response = runCatching { JSONObject(responseText) }.getOrNull()
-            if (status !in 200..299) {
-                val code = response?.optString("error").orEmpty().ifBlank { "HTTP $status" }
-                throw IOException("GPT 서버 오류: $code")
+            if (body != null) connection.outputStream.use {
+                it.write(body.toString().toByteArray(Charsets.UTF_8))
             }
-            return response?.optString("reply")?.takeIf { it.isNotBlank() }
-                ?: throw IOException("GPT 서버 응답에 답변이 없어.")
-        } finally {
-            connection.disconnect()
-        }
+            val status = connection.responseCode
+            val text = (if (status in 200..299) connection.inputStream else connection.errorStream)
+                ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            val parsed = runCatching { JSONObject(text) }.getOrNull()
+            if (status !in 200..299) {
+                val code = parsed?.optString("error").orEmpty().ifBlank { "HTTP $status" }
+                throw IOException(when (code) {
+                    "DATABASE_NOT_CONFIGURED" -> "VPE 데이터베이스 설정이 아직 완료되지 않았어."
+                    "INVALID_LOGIN" -> "아이디 또는 비밀번호를 확인해 줘."
+                    "USERNAME_EXISTS" -> "이미 사용 중인 아이디야."
+                    "INVALID_CREDENTIALS_FORMAT" -> "아이디 4~24자(영문/숫자/밑줄), 비밀번호 8자 이상으로 입력해 줘."
+                    "LOGIN_REQUIRED" -> "로그인 세션이 만료됐어. 다시 로그인해 줘."
+                    "OPENAI_NOT_CONFIGURED" -> "Render에 OpenAI API 키 등록이 필요해."
+                    else -> "서버 오류: $code"
+                })
+            }
+            return parsed ?: throw IOException("서버가 올바른 JSON을 보내지 않았어.")
+        } finally { connection.disconnect() }
+    }
+
+    fun login(baseUrl: String, username: String, password: String, register: Boolean): JSONObject =
+        request(baseUrl, if (register) "/api/auth/register" else "/api/auth/login",
+            body = JSONObject().put("username", username).put("password", password))
+
+    fun myVehicles(baseUrl: String, token: String): JSONArray =
+        request(baseUrl, "/api/vehicles", token).optJSONArray("vehicles") ?: JSONArray()
+
+    fun saveVehicle(
+        baseUrl: String,
+        token: String,
+        vehicleKey: String,
+        vehicleName: String,
+        context: JSONObject
+    ): JSONObject = request(baseUrl, "/api/vehicles", token,
+        JSONObject().put("vehicleKey", vehicleKey)
+            .put("vehicleName", vehicleName)
+            .put("context", context))
+
+    fun history(baseUrl: String, token: String, vehicleKey: String): JSONArray =
+        request(baseUrl, "/api/messages?vehicleKey=" +
+            URLEncoder.encode(vehicleKey, "UTF-8"), token)
+            .optJSONArray("messages") ?: JSONArray()
+
+    fun askAccount(
+        baseUrl: String,
+        token: String,
+        vehicleKey: String,
+        vehicleName: String,
+        message: String,
+        context: JSONObject
+    ): String {
+        val answer = request(baseUrl, "/api/chat", token,
+            JSONObject().put("vehicleKey", vehicleKey)
+                .put("vehicleName", vehicleName)
+                .put("message", message)
+                .put("context", context))
+        return answer.optString("reply").takeIf { it.isNotBlank() }
+            ?: throw IOException("GPT 응답이 비어 있어.")
     }
 }
