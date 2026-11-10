@@ -675,7 +675,7 @@ class MainActivity : Activity() {
             formCard.addView(gap(12))
             formCard.addView(label("비밀번호 확인", 14f, ink, true))
             formCard.addView(gap(8))
-            field("비밀번호를 다시 입력하세요", password = true).also(formCard::addView)
+            field("비밀번호를 다시 입력하세요", password = true).also { formCard.addView(it) }
         } else null
 
         formCard.addView(gap(16))
