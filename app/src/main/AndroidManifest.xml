@@ -1,4 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- Regular Android phones may run the VPE demo. Real Vehicle Service requires Pleos Automotive. -->
     <uses-feature android:name="android.hardware.type.automotive" android:required="false" />
     <!-- Only read domains required by VPE's typed Pleos Vehicle SDK calls. -->
