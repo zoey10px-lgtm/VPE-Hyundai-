@@ -411,6 +411,7 @@ class MainActivity : Activity() {
                 val updated = entry.text.toString().trim().take(30)
                 getSharedPreferences("vpe_vehicle_names", MODE_PRIVATE).edit()
                     .putString(id.vehicleKey, updated).apply()
+                syncCurrentVehicle(force = true)
                 render("report")
             }
             .show()
@@ -436,7 +437,7 @@ class MainActivity : Activity() {
         page.addView(label(storedVehicleName() + " 성향 분석 리포트", 26f, ink, true))
         page.addView(gap(8))
         page.addView(row().apply {
-            addView(tag(if (demo) "시연 데이터" else "실제 SDK 관측 기반",
+            addView(tag(if (cachedReport) "저장된 분석" else if (demo) "시연 데이터" else "실제 SDK 관측 기반",
                 Color.rgb(231, 243, 255), violet))
             addView(label("  ·  HPE 1.0", 12f, secondary))
         })
@@ -514,7 +515,8 @@ class MainActivity : Activity() {
         page.addView(gap(15))
 
         val feeling = card()
-        feeling.addView(label("04   지금 이 차의 기분", 14f, teal, true))
+        feeling.addView(label(if (cachedReport) "04   마지막 저장 시점의 기분"
+            else "04   지금 이 차의 기분", 14f, teal, true))
         feeling.addView(gap(8))
         feeling.addView(label(state.expression.headline, 26f, ink, true))
         feeling.addView(gap(12))
@@ -712,16 +714,17 @@ class MainActivity : Activity() {
         title.addView(gap(4))
         title.addView(label("내 차의 성격과 오늘의 상태를 알아보세요", 13f, secondary))
         title.addView(gap(9))
-        val aiPreferences = getSharedPreferences("vpe_ai", MODE_PRIVATE)
-        val configured = !aiPreferences.getString("render_url", defaultAiServerUrl).isNullOrBlank() &&
-            !aiPreferences.getString("access_token", "").isNullOrBlank()
         title.addView(label(
-            if (configured) "GPT 서버 주소 등록됨 · 첫 대화로 연결 확인"
-            else "GPT 미설정 · 설정 후 실제 GPT 대화가 시작돼요",
-            12f, if (configured) teal else secondary
+            if (hasSession()) "개인 계정 " + accountName() + " · 차량별 대화 기록 저장"
+            else "로컬 체험 모드 · 로그인하면 클라우드에 차량별로 대화를 저장해요.",
+            12f, if (hasSession()) teal else secondary
         ))
         title.addView(gap(8))
-        title.addView(button("GPT 연결 설정", false) { showAiSettings() })
+        if (!hasSession()) {
+            title.addView(button("로그인 / 회원가입") { showAccountDialog() })
+            title.addView(gap(7))
+        }
+        title.addView(button("GPT 서버 주소 설정", false) { showAiSettings() })
         contentHost.addView(title)
 
         val scroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false }
@@ -787,38 +790,24 @@ class MainActivity : Activity() {
     }
 
     private fun showAiSettings() {
-        val prefs = getSharedPreferences("vpe_ai", MODE_PRIVATE)
-        val form = column(18)
-        val serverInput = EditText(this).apply {
-            hint = "https://[Render 서비스 주소].onrender.com"
+        val input = EditText(this).apply {
+            hint = "https://vpe-hyundai.onrender.com"
             setSingleLine(true)
-            setText(prefs.getString("render_url", defaultAiServerUrl))
+            setText(serverUrl())
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
         }
-        val tokenInput = EditText(this).apply {
-            hint = "VPE_ACCESS_TOKEN (OpenAI API 키 아님)"
-            setSingleLine(true)
-            setText(prefs.getString("access_token", ""))
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        form.addView(label("Render 서버 HTTPS 주소", 14f, ink, true))
-        form.addView(serverInput)
-        form.addView(gap(8))
-        form.addView(label("VPE 전용 접속 토큰", 14f, ink, true))
-        form.addView(tokenInput)
-        form.addView(label("OpenAI API 키는 앱에 입력하지 않고 Render 서버에만 보관해요.", 12f, secondary))
         AlertDialog.Builder(this)
-            .setTitle("GPT 연결 설정")
-            .setView(form)
+            .setTitle("VPE GPT 서버 설정")
+            .setMessage("개인 계정으로 로그인하면 차량별 성격과 대화 기록이 분리돼요. OpenAI API 키는 Render에만 보관해요.")
+            .setView(input)
             .setNegativeButton("취소", null)
-            .setPositiveButton("저장") { _, _ ->
-                val url = serverInput.text.toString().trim().trimEnd('/')
-                val token = tokenInput.text.toString().trim()
-                if (url.isNotEmpty() && !url.startsWith("https://")) {
-                    Toast.makeText(this, "Render 주소는 https:// 로 시작해야 해.", Toast.LENGTH_LONG).show()
+            .setPositiveButton("주소 저장") { _, _ ->
+                val url = input.text.toString().trim().trimEnd('/')
+                if (!url.startsWith("https://")) {
+                    Toast.makeText(this, "HTTPS 서버 주소를 입력해 줘.", Toast.LENGTH_LONG).show()
                 } else {
-                    prefs.edit().putString("render_url", url)
-                        .putString("access_token", token).apply()
+                    getSharedPreferences("vpe_ai", MODE_PRIVATE).edit()
+                        .putString("render_url", url).apply()
                     if (currentTab == "chat") render("chat")
                 }
             }
@@ -859,6 +848,9 @@ class MainActivity : Activity() {
             .put("highlights", JSONArray(state.memory.highlights.takeLast(3)))
         return JSONObject()
             .put("demo", demo)
+            .put("vehicleName", storedVehicleName())
+            .put("voicePresentation", identity?.voiceBlueprint?.presentation ?: "미설정")
+            .put("axes", JSONArray(state.core.axes))
             .put("mbti", state.core.mbti)
             .put("evidenceCoverage", state.core.confidence)
             .put("traits", traits)
@@ -871,40 +863,30 @@ class MainActivity : Activity() {
 
     private fun sendMessage(message: String) {
         val state = hpe
-        val prefs = getSharedPreferences("vpe_ai", MODE_PRIVATE)
-        val url = prefs.getString("render_url", defaultAiServerUrl).orEmpty()
-        val token = prefs.getString("access_token", "").orEmpty()
-        val canUseGpt = identity != null && state != null &&
-            url.isNotBlank() && token.isNotBlank()
-        val history = JSONArray()
-        messages.takeLast(8).forEach { (sender, text) ->
-            if (sender == "나" || (sender == "VPE" && !text.startsWith("[GPT"))) {
-                history.put(JSONObject()
-                    .put("role", if (sender == "나") "user" else "assistant")
-                    .put("content", text.take(1000)))
-            }
-        }
+        val token = sessionToken()
+        val id = identity
+        val canUseGpt = id != null && state != null && token.isNotBlank()
         messages.add("나" to message)
         val replyIndex = messages.size
-        val response = when {
-            canUseGpt -> "GPT가 답변을 만들고 있어요…"
-            state != null && (url.isBlank() || token.isBlank()) ->
-                "[GPT 서버 설정 전 · 기존 로컬 대화]\n" + reply(message)
-            else -> reply(message)
-        }
-        messages.add("VPE" to response)
+        messages.add("VPE" to if (canUseGpt) "GPT가 답변을 만들고 있어요…"
+            else "[로컬 체험 응답] " + reply(message))
         saveMessages()
         if (currentTab == "chat") render("chat")
-        if (!canUseGpt || state == null) return
+        if (!canUseGpt || state == null || id == null) return
+        pendingChats++
+        val scope = activeChatScope
         val context = aiContext(state)
+        val name = storedVehicleName()
         Thread {
             val result = runCatching {
-                VpeAiClient.ask(url, token, message, context, history)
+                VpeAiClient.askAccount(serverUrl(), token, id.vehicleKey, name, message, context)
             }.getOrElse { error ->
-                "[GPT 연결 오류: " + (error.message ?: "알 수 없는 오류") +
-                    "]\n기존 로컬 응답: " + reply(message)
+                "[GPT 연결 오류: " + (error.message ?: "알 수 없는 오류") + "]\n" +
+                    "로컬 응답: " + reply(message)
             }
             runOnUiThread {
+                if (scope != activeChatScope) return@runOnUiThread
+                pendingChats = (pendingChats - 1).coerceAtLeast(0)
                 if (!isFinishing && !isDestroyed && replyIndex < messages.size) {
                     messages[replyIndex] = "VPE" to result
                     saveMessages()
@@ -1152,7 +1134,10 @@ class MainActivity : Activity() {
         identity = if (existing == null) IdentityEngine.generate(key, next)
             else IdentityEngine.evolve(existing, next)
         identity?.let(store::save)
+        cachedReport = false
         updateHumanPersonality()
+        activateChatScope()
+        syncCurrentVehicle(force = true)
         return true
     }
 
@@ -1176,6 +1161,7 @@ class MainActivity : Activity() {
             store.save(evolved)
         }
         updateHumanPersonality()
+        syncCurrentVehicle()
         if (currentTab == "home" || currentTab == "diagnostics" || currentTab == "report") render(currentTab)
     }
 
@@ -1212,14 +1198,57 @@ class MainActivity : Activity() {
         observedSnapshot = VehicleSnapshot(7.0, 87320.0, 71.0, 78.0, 0.64, 0.34)
         identity = IdentityEngine.generate("demo-vehicle", observedSnapshot!!)
         hpe = null
+        cachedReport = false
         updateHumanPersonality()
+        activateChatScope()
+        syncCurrentVehicle(force = true)
         connectionNote = "가상의 차량 데이터로 UI와 성격 알고리즘을 체험하고 있어요."
         diagnosticLogs.clear()
         render("report")
     }
 
+    private fun activateChatScope() {
+        val key = identity?.vehicleKey ?: "unassigned"
+        val scope = (accountName().ifBlank { "guest" }) + "|" + key
+        if (activeChatScope == scope) return
+        activeChatScope = scope
+        ++historyLoadSerial
+        pendingChats = 0
+        messages.clear()
+        loadMessages()
+        if (messages.isEmpty()) {
+            messages.add("VPE" to "안녕! 이 차량만의 대화를 시작해 보자.")
+        }
+        val token = sessionToken()
+        if (token.isBlank() || identity == null) return
+        val serial = historyLoadSerial
+        Thread {
+            val remote = runCatching { VpeAiClient.history(serverUrl(), token, key) }
+            runOnUiThread {
+                if (scope != activeChatScope || serial != historyLoadSerial || pendingChats > 0)
+                    return@runOnUiThread
+                remote.onSuccess { items ->
+                    val updated = mutableListOf<Pair<String, String>>()
+                    for (i in 0 until items.length()) {
+                        val entry = items.optJSONObject(i) ?: continue
+                        updated.add(
+                            (if (entry.optString("role") == "user") "나" else "VPE") to
+                                entry.optString("content"))
+                    }
+                    messages.clear()
+                    if (updated.isEmpty()) messages.add("VPE" to "안녕! 이 차량만의 대화를 시작해 보자.")
+                    else messages.addAll(updated.takeLast(60))
+                    saveMessages()
+                    if (currentTab == "chat") render("chat")
+                }
+            }
+        }.start()
+    }
+
     private fun loadMessages() {
-        val raw = getSharedPreferences("vpe_chat", MODE_PRIVATE).getString("history", null) ?: return
+        val scope = activeChatScope ?: return
+        val raw = getSharedPreferences("vpe_chat", MODE_PRIVATE)
+            .getString("history_" + scope, null) ?: return
         runCatching {
             val array = JSONArray(raw)
             for (i in 0 until array.length()) {
@@ -1230,11 +1259,13 @@ class MainActivity : Activity() {
     }
 
     private fun saveMessages() {
+        val scope = activeChatScope ?: return
         val array = JSONArray()
         messages.takeLast(60).forEach { (who, message) ->
             array.put(JSONObject().put("who", who).put("text", message))
         }
-        getSharedPreferences("vpe_chat", MODE_PRIVATE).edit().putString("history", array.toString()).apply()
+        getSharedPreferences("vpe_chat", MODE_PRIVATE).edit()
+            .putString("history_" + scope, array.toString()).apply()
     }
 
     override fun onDestroy() {
