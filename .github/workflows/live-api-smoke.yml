@@ -1,0 +1,43 @@
+name: VPE live API readiness
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/live-api-smoke.yml'
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify live Render HTTPS health and PostgreSQL login query
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://vpe-hyundai.onrender.com"
+          # Render Free may cold-start; use bounded retries.
+          for i in {1..20}; do
+            status=$(curl -sS --max-time 20 -o /tmp/health.json -w '%{http_code}' "$base/health" || true)
+            if [[ "$status" == "200" ]]; then break; fi
+            sleep 3
+          done
+          test "$status" = "200"
+          node -e '
+            const fs=require("fs");
+            const h=JSON.parse(fs.readFileSync("/tmp/health.json"));
+            if(!h.ok||!h.databaseConfigured||!h.openaiConfigured||!h.accessConfigured)
+              throw Error("VPE backend is missing required configuration: "+JSON.stringify(h));
+            console.log("PASS: Live VPE health, OpenAI and Postgres configured");
+          '
+          # Login of a nonexistent, syntactically valid user must reach SQL query.
+          # The test writes no accounts/messages and never sends a real password.
+          status=$(curl -sS --max-time 25 -o /tmp/login.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            --data '{"username":"vpeprobeid000000","password":"test-credential-only"}' \
+            "$base/api/auth/login")
+          node - "$status" <<'JS'
+          const fs=require("fs");
+          const status=process.argv[2];
+          const res=JSON.parse(fs.readFileSync("/tmp/login.json"));
+          if(status!=="401"||res.error!=="INVALID_LOGIN")
+            throw Error("Live account/SQL verification failed. status="+status+", body="+JSON.stringify(res));
+          console.log("PASS: Live Render backend successfully reached PostgreSQL account table");
+          JS
