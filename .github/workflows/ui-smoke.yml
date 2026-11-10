@@ -43,6 +43,8 @@ jobs:
           path: |
             /tmp/vpe_frame_1.png
             /tmp/vpe_frame_2.png
+            /tmp/vpe_login_screen.png
+            /tmp/vpe_signup_screen.png
             /tmp/vpe_demo.png
             /tmp/vpe_chat.png
             /tmp/vpe_diagnostics.png
