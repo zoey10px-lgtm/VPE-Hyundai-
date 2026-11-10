@@ -57,6 +57,10 @@ object VpeAiClient {
         request(baseUrl, if (register) "/api/auth/register" else "/api/auth/login",
             body = JSONObject().put("username", username).put("password", password))
 
+    fun logout(baseUrl: String, token: String) {
+        request(baseUrl, "/api/auth/logout", token, JSONObject())
+    }
+
     fun myVehicles(baseUrl: String, token: String): JSONArray =
         request(baseUrl, "/api/vehicles", token).optJSONArray("vehicles") ?: JSONArray()
 
