@@ -45,6 +45,7 @@ object VpeAiClient {
                     "USERNAME_EXISTS" -> "이미 사용 중인 아이디야."
                     "INVALID_CREDENTIALS_FORMAT" -> "아이디 2~24자(한글·영문·숫자·_), 비밀번호 8~128자로 입력해 줘."
                     "LOGIN_REQUIRED" -> "로그인 세션이 만료됐어. 다시 로그인해 줘."
+                    "RATE_LIMITED" -> "요청이 연속으로 많아 잠시 제한됐어. 1분 뒤 다시 시도해 줘."
                     "OPENAI_NOT_CONFIGURED" -> "Render에 OpenAI API 키 등록이 필요해."
                     "OPENAI_RATE_LIMIT" -> "OpenAI API 한도/잔액이 부족하거나 요청이 많아. API 결제 설정을 확인해 줘."
                     "OPENAI_KEY_INVALID" -> "Render의 OpenAI API 키 인증에 실패했어. 등록한 키를 확인해 줘."
