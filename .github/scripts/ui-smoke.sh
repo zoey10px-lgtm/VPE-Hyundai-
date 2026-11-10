@@ -17,8 +17,14 @@ dump_ui() {
 
 tap_label() {
   local wanted="$1"
-  dump_ui
   local coords
+  for attempt in 1 2 3 4 5 6; do
+    dump_ui
+    if grep -q "$wanted" /tmp/vpe_ui.xml; then break; fi
+    adb shell input swipe 320 650 320 240 350
+    sleep 1
+  done
+  dump_ui
   coords=$(python3 - "$wanted" <<'PY'
 import sys, re, xml.etree.ElementTree as ET
 wanted=sys.argv[1]
@@ -53,8 +59,9 @@ if cmp -s /tmp/vpe_frame_1.png /tmp/vpe_frame_2.png; then
 fi
 echo "PASS: Animated home changed pixels"
 
-grep -q '스마트폰에서 VPE 데모 시작' /tmp/vpe_ui.xml
 grep -q 'Pleos 차량 연동 안내' /tmp/vpe_ui.xml
+# Demo button can be below the initial viewport on devices with taller home content.
+# tap_label scrolls to it before tapping.
 echo "PASS: Regular Android phone detected without claiming vehicle connection"
 tap_label "스마트폰에서 VPE 데모 시작"
 dump_ui
