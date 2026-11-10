@@ -100,7 +100,14 @@ async function callModel(message, context, history) {
   });
   if(!upstream.ok){
     console.error("OpenAI request status:",upstream.status);
-    throw new Error(upstream.status===429?"OPENAI_RATE_LIMIT":"OPENAI_UPSTREAM_ERROR");
+    const codes={
+      400:"OPENAI_INVALID_REQUEST",
+      401:"OPENAI_KEY_INVALID",
+      403:"OPENAI_ACCESS_DENIED",
+      404:"OPENAI_MODEL_UNAVAILABLE",
+      429:"OPENAI_RATE_LIMIT"
+    };
+    throw new Error(codes[upstream.status] || "OPENAI_UPSTREAM_ERROR");
   }
   const output=await upstream.json();
   const reply=(output.output||[]).filter(x=>x.type==="message")
@@ -141,7 +148,7 @@ const httpServer=createServer(async(req,res)=>{
     const serviceError=error==="DATABASE_NOT_CONFIGURED"||error==="OPENAI_NOT_CONFIGURED";
     console.error("VPE request failed:",error==="OPENAI_UPSTREAM_ERROR"?error:err?.name||"Error");
     return respond(res,serviceError?503:502,{error:serviceError?error:
-      ["OPENAI_RATE_LIMIT","OPENAI_UPSTREAM_ERROR","EMPTY_OPENAI_RESPONSE"].includes(error)
+      ["OPENAI_RATE_LIMIT","OPENAI_KEY_INVALID","OPENAI_ACCESS_DENIED","OPENAI_INVALID_REQUEST","OPENAI_MODEL_UNAVAILABLE","OPENAI_UPSTREAM_ERROR","EMPTY_OPENAI_RESPONSE"].includes(error)
       ?error:"REQUEST_FAILED"});
   }
 });
