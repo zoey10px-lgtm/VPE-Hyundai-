@@ -388,17 +388,19 @@ class MainActivity : Activity() {
     }
 
     /** Vehicle model isn't exposed by our confirmed Pleos getters. Allow a truthful local name. */
+    private fun vehicleNameKey(key: String) = accountName().ifBlank { "guest" } + "|" + key
+
     private fun storedVehicleName(): String {
         val id = identity ?: return "내 차량"
         val saved = getSharedPreferences("vpe_vehicle_names", MODE_PRIVATE)
-            .getString(id.vehicleKey, "").orEmpty().trim()
+            .getString(vehicleNameKey(id.vehicleKey), "").orEmpty().trim()
         return saved.ifBlank { if (demo) "시연 차량" else "내 차량" }
     }
 
     private fun showVehicleNameDialog() {
         val id = identity ?: return
         val existing = getSharedPreferences("vpe_vehicle_names", MODE_PRIVATE)
-            .getString(id.vehicleKey, "").orEmpty()
+            .getString(vehicleNameKey(id.vehicleKey), "").orEmpty()
         val entry = EditText(this).apply {
             hint = "예: 내 아이오닉 5, 우리 차"
             setSingleLine(true)
@@ -413,7 +415,7 @@ class MainActivity : Activity() {
             .setPositiveButton("저장") { _, _ ->
                 val updated = entry.text.toString().trim().take(30)
                 getSharedPreferences("vpe_vehicle_names", MODE_PRIVATE).edit()
-                    .putString(id.vehicleKey, updated).apply()
+                    .putString(vehicleNameKey(id.vehicleKey), updated).apply()
                 syncCurrentVehicle(force = true)
                 render("report")
             }
@@ -643,8 +645,28 @@ class MainActivity : Activity() {
         val v = ctx.optJSONObject("vehicle") ?: JSONObject()
         val distance = v.optDouble("odometerKm", Double.NaN).takeIf { it.isFinite() }
         val energy = v.optDouble("energyPercent", Double.NaN).takeIf { it.isFinite() }
-        val snapshot = VehicleSnapshot(10.0, distance ?: 0.0, energy ?: 50.0, 50.0, 0.5, 0.5)
-        identity = IdentityEngine.generate(key, snapshot)
+        val snap = ctx.optJSONObject("snapshot") ?: JSONObject()
+        val snapshot = VehicleSnapshot(
+            snap.optDouble("ageYears", 10.0),
+            snap.optDouble("odometerKm", distance ?: 0.0),
+            snap.optDouble("fuelPercent", energy ?: 50.0),
+            snap.optDouble("maintenanceScore", 50.0),
+            snap.optDouble("explorationRatio", 0.5),
+            snap.optDouble("longTripRatio", 0.5)
+        )
+        val generatedIdentity = IdentityEngine.generate(key, snapshot)
+        val savedVoice = ctx.optJSONObject("voice")
+        identity = if (savedVoice == null) generatedIdentity else {
+            val v = generatedIdentity.voiceBlueprint
+            generatedIdentity.copy(voiceBlueprint = VoiceBlueprint(
+                savedVoice.optDouble("genderExpression", v.genderExpression),
+                savedVoice.optInt("perceivedAge", v.perceivedAge),
+                savedVoice.optDouble("pitch", v.pitch),
+                savedVoice.optDouble("resonance", v.resonance),
+                savedVoice.optDouble("softness", v.softness),
+                savedVoice.optDouble("speechRate", v.speechRate)
+            ))
+        }
         observedSnapshot = if (ctx.optBoolean("demo", false)) snapshot else null
         demo = ctx.optBoolean("demo", false)
         latest = VehicleReadings()
@@ -660,9 +682,16 @@ class MainActivity : Activity() {
         val core = HpeCore(axes, traits, ctx.optDouble("evidenceCoverage", 0.0))
         val m = ctx.optJSONObject("memory") ?: JSONObject()
         val highlights = m.optJSONArray("highlights") ?: JSONArray()
-        val memory = HpeMemory(sharedKm = m.optDouble("sharedKm", 0.0),
+        val memory = HpeMemory(
+            firstKm = m.optDouble("firstKm", Double.NaN).takeIf { it.isFinite() },
+            lastKm = m.optDouble("lastKm", Double.NaN).takeIf { it.isFinite() },
+            sharedKm = m.optDouble("sharedKm", 0.0),
             meaningfulEvents = m.optInt("meaningfulEvents", 0),
-            highlights = (0 until highlights.length()).map { highlights.optString(it) })
+            lastExploration = m.optDouble("lastExploration", Double.NaN).takeIf { it.isFinite() },
+            lastRegularity = m.optDouble("lastRegularity", Double.NaN).takeIf { it.isFinite() },
+            lastInteraction = m.optDouble("lastInteraction", Double.NaN).takeIf { it.isFinite() },
+            highlights = (0 until highlights.length()).map { highlights.optString(it) }
+        )
         val signals = HpeSignals(key, distance, energy,
             v.optDouble("actualCabinC", Double.NaN).takeIf { it.isFinite() },
             v.optDouble("targetCabinC", Double.NaN).takeIf { it.isFinite() })
@@ -672,7 +701,7 @@ class MainActivity : Activity() {
             HumanPersonalityEngine.express(core, mood, signals),
             listOf("계정에 저장된 마지막 차량 분석 결과"), signals)
         getSharedPreferences("vpe_vehicle_names", MODE_PRIVATE).edit()
-            .putString(key, profile.optString("vehicleName", "내 차량")).apply()
+            .putString(vehicleNameKey(key), profile.optString("vehicleName", "내 차량")).apply()
         activateChatScope()
         render("report")
     }
@@ -846,9 +875,31 @@ class MainActivity : Activity() {
             .put("parked", value(if (demo) null else latest.parked))
             .put("safetyWarning", value(if (demo) null else latest.safetyWarning))
         val memory = JSONObject()
+            .put("firstKm", value(state.memory.firstKm))
+            .put("lastKm", value(state.memory.lastKm))
             .put("sharedKm", state.memory.sharedKm)
             .put("meaningfulEvents", state.memory.meaningfulEvents)
-            .put("highlights", JSONArray(state.memory.highlights.takeLast(3)))
+            .put("lastExploration", value(state.memory.lastExploration))
+            .put("lastRegularity", value(state.memory.lastRegularity))
+            .put("lastInteraction", value(state.memory.lastInteraction))
+            .put("highlights", JSONArray(state.memory.highlights.takeLast(12)))
+        val id = identity
+        val base = observedSnapshot ?: id?.lastLearned
+        val voice = id?.voiceBlueprint
+        val snap = JSONObject()
+            .put("ageYears", value(base?.ageYears))
+            .put("odometerKm", value(base?.odometerKm))
+            .put("fuelPercent", value(base?.fuelPercent))
+            .put("maintenanceScore", value(base?.maintenanceScore))
+            .put("explorationRatio", value(base?.explorationRatio))
+            .put("longTripRatio", value(base?.longTripRatio))
+        val voiceJson = JSONObject()
+            .put("genderExpression", value(voice?.genderExpression))
+            .put("perceivedAge", value(voice?.perceivedAge))
+            .put("pitch", value(voice?.pitch))
+            .put("resonance", value(voice?.resonance))
+            .put("softness", value(voice?.softness))
+            .put("speechRate", value(voice?.speechRate))
         return JSONObject()
             .put("demo", demo)
             .put("vehicleName", storedVehicleName())
@@ -862,6 +913,8 @@ class MainActivity : Activity() {
             .put("voiceSpeed", state.expression.voiceSpeed)
             .put("vehicle", vehicle)
             .put("memory", memory)
+            .put("snapshot", snap)
+            .put("voice", voiceJson)
     }
 
     private fun sendMessage(message: String) {
