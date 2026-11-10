@@ -4,7 +4,7 @@ import { database, inTransaction, makeId, databaseConfigured } from "./db.mjs";
 const sha = value => createHash("sha256").update(value).digest("hex");
 const issueToken = () => randomBytes(32).toString("base64url");
 const invalidKey = key => typeof key !== "string" ||
-  !/^[a-zA-Z0-9_-]{4,128}$/.test(key);
+  !/^[a-zA-Z0-9:_-]{4,128}$/.test(key);
 const validName = name => typeof name === "string" && name.trim().length > 0 &&
   name.trim().length <= 60;
 const safeContext = value => value && typeof value === "object" && !Array.isArray(value) &&
