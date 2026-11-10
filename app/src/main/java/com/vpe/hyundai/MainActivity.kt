@@ -44,6 +44,7 @@ class MainActivity : Activity() {
     private var demo = false
     private var connecting = false
     private var connectionNote = "아직 차량과 연결되지 않았어요."
+    private val defaultAiServerUrl = "https://vpe-hyundai.onrender.com"
     private val messages = mutableListOf<Pair<String, String>>()
     private var liveMessages: LinearLayout? = null
     private var liveChatScroll: ScrollView? = null
@@ -366,7 +367,7 @@ class MainActivity : Activity() {
         title.addView(label("내 차의 성격과 오늘의 상태를 알아보세요", 13f, secondary))
         title.addView(gap(9))
         val aiPreferences = getSharedPreferences("vpe_ai", MODE_PRIVATE)
-        val configured = !aiPreferences.getString("render_url", "").isNullOrBlank() &&
+        val configured = !aiPreferences.getString("render_url", defaultAiServerUrl).isNullOrBlank() &&
             !aiPreferences.getString("access_token", "").isNullOrBlank()
         title.addView(label(
             if (configured) "GPT 서버 주소 등록됨 · 첫 대화로 연결 확인"
@@ -445,7 +446,7 @@ class MainActivity : Activity() {
         val serverInput = EditText(this).apply {
             hint = "https://[Render 서비스 주소].onrender.com"
             setSingleLine(true)
-            setText(prefs.getString("render_url", ""))
+            setText(prefs.getString("render_url", defaultAiServerUrl))
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
         }
         val tokenInput = EditText(this).apply {
@@ -525,7 +526,7 @@ class MainActivity : Activity() {
     private fun sendMessage(message: String) {
         val state = hpe
         val prefs = getSharedPreferences("vpe_ai", MODE_PRIVATE)
-        val url = prefs.getString("render_url", "").orEmpty()
+        val url = prefs.getString("render_url", defaultAiServerUrl).orEmpty()
         val token = prefs.getString("access_token", "").orEmpty()
         val canUseGpt = identity != null && state != null &&
             url.isNotBlank() && token.isNotBlank()
