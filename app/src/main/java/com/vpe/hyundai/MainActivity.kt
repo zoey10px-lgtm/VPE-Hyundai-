@@ -1,6 +1,7 @@
 package com.vpe.hyundai
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -13,6 +14,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -362,6 +364,17 @@ class MainActivity : Activity() {
         title.addView(label("VPE와 대화", 25f, ink, true))
         title.addView(gap(4))
         title.addView(label("내 차의 성격과 오늘의 상태를 알아보세요", 13f, secondary))
+        title.addView(gap(9))
+        val aiPreferences = getSharedPreferences("vpe_ai", MODE_PRIVATE)
+        val configured = !aiPreferences.getString("render_url", "").isNullOrBlank() &&
+            !aiPreferences.getString("access_token", "").isNullOrBlank()
+        title.addView(label(
+            if (configured) "GPT 서버 주소 등록됨 · 첫 대화로 연결 확인"
+            else "GPT 미설정 · 설정 후 실제 GPT 대화가 시작돼요",
+            12f, if (configured) teal else secondary
+        ))
+        title.addView(gap(8))
+        title.addView(button("GPT 연결 설정", false) { showAiSettings() })
         contentHost.addView(title)
 
         val scroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false }
@@ -426,19 +439,132 @@ class MainActivity : Activity() {
         container.addView(gap(11))
     }
 
+    private fun showAiSettings() {
+        val prefs = getSharedPreferences("vpe_ai", MODE_PRIVATE)
+        val form = column(18)
+        val serverInput = EditText(this).apply {
+            hint = "https://[Render 서비스 주소].onrender.com"
+            setSingleLine(true)
+            setText(prefs.getString("render_url", ""))
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+        }
+        val tokenInput = EditText(this).apply {
+            hint = "VPE_ACCESS_TOKEN (OpenAI API 키 아님)"
+            setSingleLine(true)
+            setText(prefs.getString("access_token", ""))
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        form.addView(label("Render 서버 HTTPS 주소", 14f, ink, true))
+        form.addView(serverInput)
+        form.addView(gap(8))
+        form.addView(label("VPE 전용 접속 토큰", 14f, ink, true))
+        form.addView(tokenInput)
+        form.addView(label("OpenAI API 키는 앱에 입력하지 않고 Render 서버에만 보관해요.", 12f, secondary))
+        AlertDialog.Builder(this)
+            .setTitle("GPT 연결 설정")
+            .setView(form)
+            .setNegativeButton("취소", null)
+            .setPositiveButton("저장") { _, _ ->
+                val url = serverInput.text.toString().trim().trimEnd('/')
+                val token = tokenInput.text.toString().trim()
+                if (url.isNotEmpty() && !url.startsWith("https://")) {
+                    Toast.makeText(this, "Render 주소는 https:// 로 시작해야 해.", Toast.LENGTH_LONG).show()
+                } else {
+                    prefs.edit().putString("render_url", url)
+                        .putString("access_token", token).apply()
+                    if (currentTab == "chat") render("chat")
+                }
+            }
+            .show()
+    }
+
+    /** Send the observed/derived HPE state, never the VIN or raw vehicle key. */
+    private fun aiContext(state: HpeState): JSONObject {
+        fun value(v: Any?): Any = v ?: JSONObject.NULL
+        val traitNames = listOf("activity", "curiosity", "warmth", "confidence",
+            "caution", "playfulness", "expressiveness")
+        val traits = JSONObject()
+        traitNames.forEachIndexed { index, name -> traits.put(name, state.core.traits[index]) }
+        val emotion = JSONObject()
+            .put("hunger", state.affect.hunger)
+            .put("heat", state.affect.heat)
+            .put("cold", state.affect.cold)
+            .put("fatigue", state.affect.fatigue)
+            .put("excitement", state.affect.excitement)
+            .put("tension", state.affect.tension)
+            .put("relief", state.affect.relief)
+            .put("comfort", state.affect.comfort)
+            .put("valence", state.affect.valence)
+            .put("arousal", state.affect.arousal)
+        val snapshot = if (demo) observedSnapshot else null
+        val vehicle = JSONObject()
+            .put("odometerKm", value(if (demo) snapshot?.odometerKm else latest.odometerKm))
+            .put("energyPercent", value(if (demo) snapshot?.fuelPercent else latest.energyPercent()))
+            .put("actualCabinC", value(if (demo) null else latest.cabinTemperatureC))
+            .put("targetCabinC", value(if (demo) null else latest.targetTemperatureC))
+            .put("hvacOn", value(if (demo) null else latest.hvacOn))
+            .put("chargingSwitchOn", value(if (demo) null else latest.charging))
+            .put("parked", value(if (demo) null else latest.parked))
+            .put("safetyWarning", value(if (demo) null else latest.safetyWarning))
+        val memory = JSONObject()
+            .put("sharedKm", state.memory.sharedKm)
+            .put("meaningfulEvents", state.memory.meaningfulEvents)
+            .put("highlights", JSONArray(state.memory.highlights.takeLast(3)))
+        return JSONObject()
+            .put("demo", demo)
+            .put("mbti", state.core.mbti)
+            .put("evidenceCoverage", state.core.confidence)
+            .put("traits", traits)
+            .put("affect", emotion)
+            .put("currentFeeling", state.expression.headline)
+            .put("voiceSpeed", state.expression.voiceSpeed)
+            .put("vehicle", vehicle)
+            .put("memory", memory)
+    }
+
     private fun sendMessage(message: String) {
-        val response = reply(message)
+        val state = hpe
+        val prefs = getSharedPreferences("vpe_ai", MODE_PRIVATE)
+        val url = prefs.getString("render_url", "").orEmpty()
+        val token = prefs.getString("access_token", "").orEmpty()
+        val canUseGpt = identity != null && state != null &&
+            url.isNotBlank() && token.isNotBlank()
+        val history = JSONArray()
+        messages.takeLast(8).forEach { (sender, text) ->
+            if (sender == "나" || (sender == "VPE" && !text.startsWith("[GPT"))) {
+                history.put(JSONObject()
+                    .put("role", if (sender == "나") "user" else "assistant")
+                    .put("content", text.take(1000)))
+            }
+        }
         messages.add("나" to message)
+        val replyIndex = messages.size
+        val response = when {
+            canUseGpt -> "GPT가 답변을 만들고 있어요…"
+            state != null && (url.isBlank() || token.isBlank()) ->
+                "[GPT 서버 설정 전 · 기존 로컬 대화]\n" + reply(message)
+            else -> reply(message)
+        }
         messages.add("VPE" to response)
         saveMessages()
-        val visible = liveMessages
-        if (currentTab == "chat" && visible != null) {
-            appendBubble(visible, "나", message)
-            appendBubble(visible, "VPE", response)
-            liveChatScroll?.post { liveChatScroll?.fullScroll(View.FOCUS_DOWN) }
-        } else {
-            render("chat")
-        }
+        if (currentTab == "chat") render("chat")
+        if (!canUseGpt || state == null) return
+        val context = aiContext(state)
+        Thread {
+            val result = runCatching {
+                VpeAiClient.ask(url, token, message, context, history)
+            }.getOrElse { error ->
+                "[GPT 연결 오류: " + (error.message ?: "알 수 없는 오류") +
+                    "]\n기존 로컬 응답: " + reply(message)
+            }
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed && replyIndex < messages.size) {
+                    messages[replyIndex] = "VPE" to result
+                    saveMessages()
+                    if (currentTab == "chat") render("chat")
+                }
+            }
+        }.start()
     }
 
     private fun reply(message: String): String {
