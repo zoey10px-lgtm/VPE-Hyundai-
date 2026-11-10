@@ -15,6 +15,8 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
+import android.text.method.HideReturnsTransformationMethod
+import android.text.method.PasswordTransformationMethod
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -23,6 +25,7 @@ import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
+import java.util.Locale
 
 /**
  * VPE consumer-facing app.
@@ -52,6 +55,10 @@ class MainActivity : Activity() {
     private var pendingChats = 0
     private var lastProfileSyncAt = 0L
     private var cachedReport = false
+    private var authModeRegister = false
+    private var authOriginTab = "home"
+    private var authUsernameDraft = ""
+    private var authBusy = false
     private val accountPrefs get() = getSharedPreferences("vpe_account", MODE_PRIVATE)
     private fun accountName() = accountPrefs.getString("username", "").orEmpty()
     private fun sessionToken() = VpeSecureSession.read(this)
@@ -181,11 +188,13 @@ class MainActivity : Activity() {
         root.addView(contentHost, LinearLayout.LayoutParams(-1, 0, 1f))
         when (tab) {
             "chat" -> chatScreen()
+            "auth" -> authScreen()
             "report" -> reportScreen()
             "diagnostics" -> diagnosticsScreen()
             else -> homeScreen()
         }
 
+        if (tab != "auth") {
         val navWrap = row().apply {
             setPadding(d(10), d(9), d(10), d(13))
             setBackgroundColor(white)
@@ -206,6 +215,7 @@ class MainActivity : Activity() {
             navWrap.addView(item, LinearLayout.LayoutParams(0, -1, 1f))
         }
         root.addView(navWrap)
+        }
         setContentView(root)
     }
 
@@ -298,7 +308,7 @@ class MainActivity : Activity() {
             accountCard.addView(gap(8))
             accountCard.addView(button("로그아웃", false) { logoutAccount() })
         } else {
-            accountCard.addView(button("로그인 / 회원가입") { showAccountDialog() })
+            accountCard.addView(button("로그인 / 회원가입") { openAuth() })
         }
         page.addView(accountCard)
         page.addView(gap(18))
@@ -539,74 +549,247 @@ class MainActivity : Activity() {
         page.addView(button("홈으로 돌아가기", false) { render("home") })
     }
 
-    private fun showAccountDialog() {
-        val form = column(17)
-        val username = EditText(this).apply {
-            hint = "아이디 (영문/숫자/밑줄 4~24자)"
-            setSingleLine(true)
-            setText(accountName())
-        }
-        val password = EditText(this).apply {
-            hint = "비밀번호 (8자 이상)"
-            setSingleLine(true)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        form.addView(label("아이디", 14f, ink, true))
-        form.addView(username)
-        form.addView(gap(10))
-        form.addView(label("비밀번호", 14f, ink, true))
-        form.addView(password)
-        AlertDialog.Builder(this)
-            .setTitle("VPE 계정")
-            .setMessage("차량별 성향과 대화 기록을 개인 계정에 저장해요.")
-            .setView(form)
-            .setPositiveButton("로그인") { _, _ ->
-                submitAccount(username.text.toString(), password.text.toString(), false)
-            }
-            .setNeutralButton("회원가입") { _, _ ->
-                submitAccount(username.text.toString(), password.text.toString(), true)
-            }
-            .setNegativeButton("취소", null)
-            .show()
+    private fun openAuth(register: Boolean = false) {
+        if (currentTab != "auth") authOriginTab = currentTab
+        authModeRegister = register
+        authBusy = false
+        render("auth")
     }
 
-    private fun submitAccount(username: String, password: String, register: Boolean) {
-        val previousAccount = accountName()
-        Thread {
-            val result = runCatching {
-                VpeAiClient.login(serverUrl(), username.trim(), password, register)
+    /** Full-page account experience. The form stays visible on validation/server errors. */
+    private fun authScreen() {
+        val page = scrollContent()
+        val back = label("‹  돌아가기", 15f, secondary, true).apply {
+            setPadding(d(3), d(2), d(3), d(12))
+            isClickable = true
+            setOnClickListener { if (!authBusy) render(authOriginTab) }
+        }
+        page.addView(back)
+        page.addView(gap(9))
+
+        val banner = column(22).apply { background = gradient() }
+        banner.addView(tag("VPE  ·  YOUR OWN VEHICLE AI",
+            Color.argb(198, 255, 255, 255), violet))
+        banner.addView(gap(18))
+        banner.addView(label("차량마다 하나의 인격,\\n나만의 VPE.", 29f, ink, true))
+        banner.addView(gap(9))
+        banner.addView(label(
+            "차량 성향 리포트와 대화의 추억을\\n한 계정에서 안전하게 이어가세요.",
+            15f, secondary
+        ))
+        banner.addView(gap(12))
+        banner.addView(row().apply {
+            addView(tag("차량별 성격 저장", white, violet))
+            addView(gap(8))
+            addView(tag("대화 기록 분리", white, teal))
+        })
+        page.addView(banner)
+        page.addView(gap(22))
+
+        val formCard = card()
+        formCard.addView(label(if (authModeRegister) "VPE 회원가입" else "VPE 로그인",
+            25f, ink, true))
+        formCard.addView(gap(7))
+        formCard.addView(label(
+            if (authModeRegister) "새 계정을 만들어 차량과의 이야기를 시작해요."
+            else "저장한 내 차량과 다시 만나보세요.",
+            14f, secondary
+        ))
+        formCard.addView(gap(22))
+        var authUserInputText = authUsernameDraft
+        val tabs = row()
+        tabs.addView(button("로그인", primary = !authModeRegister) {
+            if (!authBusy && authModeRegister) {
+                authUsernameDraft = authUserInputText
+                authModeRegister = false
+                render("auth")
             }
-            runOnUiThread {
-                result.onSuccess { data ->
-                    val nextAccount = data.getString("username")
-                    if (previousAccount.isNotEmpty() && previousAccount != nextAccount) {
-                        identity = null
-                        hpe = null
-                        observedSnapshot = null
-                        latest = VehicleReadings()
-                        cachedReport = false
-                        store.clear()
-                        hpeStore.clear()
-                    }
-                    val saved = runCatching {
-                        VpeSecureSession.save(this, data.getString("token"))
-                    }
-                    if (saved.isFailure) {
-                        Toast.makeText(this, "보안 세션 저장 실패: 다시 로그인해 줘.", Toast.LENGTH_LONG).show()
-                        return@onSuccess
-                    }
-                    accountPrefs.edit().putString("username", nextAccount).apply()
-                    activeChatScope = null
-                    activateChatScope()
-                    Toast.makeText(this, "VPE 계정 연결 완료!", Toast.LENGTH_SHORT).show()
-                    if (identity != null && hpe != null) syncCurrentVehicle(force = true)
-                    refreshRemoteProfiles()
-                    render(if (currentTab == "chat") "chat" else "home")
-                }.onFailure { error ->
-                    Toast.makeText(this, error.message ?: "로그인 오류", Toast.LENGTH_LONG).show()
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        tabs.addView(button("회원가입", primary = authModeRegister) {
+            if (!authBusy && !authModeRegister) {
+                authUsernameDraft = authUserInputText
+                authModeRegister = true
+                render("auth")
+            }
+        }, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = d(9) })
+        formCard.addView(tabs)
+        formCard.addView(gap(22))
+
+        fun field(hintText: String, password: Boolean = false): EditText =
+            EditText(this).apply {
+                hint = hintText
+                textSize = 16f
+                setTextColor(ink)
+                setHintTextColor(secondary)
+                minHeight = d(58)
+                background = shape(cream, 16, line)
+                setPadding(d(17), d(13), d(17), d(13))
+                setSingleLine(true)
+                inputType = if (password)
+                    InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                else
+                    InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            }
+
+        formCard.addView(label("아이디", 14f, ink, true))
+        formCard.addView(gap(8))
+        val usernameInput = field("아이디를 입력하세요").apply {
+            setText(authUsernameDraft.ifBlank { accountName() })
+            setSelection(text.length)
+        }
+        formCard.addView(usernameInput)
+        usernameInput.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                authUserInputText = s?.toString().orEmpty()
+            }
+            override fun afterTextChanged(s: android.text.Editable?) {}
+        })
+        formCard.addView(gap(6))
+        formCard.addView(label("한글·영문·숫자·밑줄(_) / 2~24자",
+            12f, secondary))
+        formCard.addView(gap(18))
+
+        formCard.addView(label("비밀번호", 14f, ink, true))
+        formCard.addView(gap(8))
+        val passwordInput = field("비밀번호 8자 이상", password = true)
+        formCard.addView(passwordInput)
+        formCard.addView(gap(8))
+        var passwordVisible = false
+        val visibility = label("비밀번호 표시", 13f, violet, true).apply {
+            isClickable = true
+            setPadding(d(2), d(4), d(2), d(6))
+        }
+        visibility.setOnClickListener {
+            passwordVisible = !passwordVisible
+            val pos = passwordInput.selectionStart.coerceAtLeast(0)
+            passwordInput.transformationMethod = if (passwordVisible)
+                HideReturnsTransformationMethod.getInstance()
+            else PasswordTransformationMethod.getInstance()
+            passwordInput.setSelection(pos.coerceAtMost(passwordInput.text.length))
+            visibility.text = if (passwordVisible) "비밀번호 숨기기" else "비밀번호 표시"
+        }
+        formCard.addView(visibility)
+
+        val confirmInput = if (authModeRegister) {
+            formCard.addView(gap(12))
+            formCard.addView(label("비밀번호 확인", 14f, ink, true))
+            formCard.addView(gap(8))
+            field("비밀번호를 다시 입력하세요", password = true).also(formCard::addView)
+        } else null
+
+        formCard.addView(gap(16))
+        val feedback = label("", 13f, Color.rgb(181, 58, 72), true).apply {
+            visibility = View.GONE
+            setPadding(d(5), d(8), d(5), d(12))
+        }
+        formCard.addView(feedback)
+        val submit = button(
+            if (authModeRegister) "계정 만들고 시작하기" else "로그인하기"
+        ) {}
+        // Assign the actual handler after all inputs exist.
+        submit.setOnClickListener {
+            if (authBusy) return@setOnClickListener
+            val username = usernameInput.text.toString().trim().lowercase(Locale.ROOT)
+            val password = passwordInput.text.toString()
+            authUsernameDraft = username
+            fun error(message: String) {
+                feedback.text = message
+                feedback.visibility = View.VISIBLE
+            }
+            if (!Regex("^[a-z0-9_가-힣]{2,24}$").matches(username)) {
+                error("아이디는 한글·영문·숫자·_를 사용해 2~24자로 입력해 줘.")
+                return@setOnClickListener
+            }
+            if (password.length !in 8..128) {
+                error("비밀번호는 8~128자로 입력해 줘.")
+                return@setOnClickListener
+            }
+            if (authModeRegister && confirmInput?.text.toString() != password) {
+                error("비밀번호 확인이 일치하지 않아. 다시 확인해 줘.")
+                return@setOnClickListener
+            }
+
+            feedback.visibility = View.VISIBLE
+            feedback.setTextColor(secondary)
+            feedback.text = "서버에 연결하고 있어요…"
+            authBusy = true
+            submit.isEnabled = false
+            submit.alpha = .64f
+            submit.text = "처리 중…"
+
+            val registering = authModeRegister
+            val returnTo = authOriginTab
+            val address = serverUrl()
+            Thread {
+                val result = runCatching {
+                    VpeAiClient.login(address, username, password, registering)
                 }
-            }
-        }.start()
+                runOnUiThread {
+                    authBusy = false
+                    if (currentTab != "auth") return@runOnUiThread
+                    submit.isEnabled = true
+                    submit.alpha = 1f
+                    submit.text = if (registering) "계정 만들고 시작하기" else "로그인하기"
+                    result.onSuccess { data ->
+                        val applied = runCatching { completeAccountAuth(data) }
+                        applied.onSuccess {
+                            authUsernameDraft = ""
+                            passwordInput.text.clear()
+                            confirmInput?.text?.clear()
+                            Toast.makeText(this,
+                                if (registering) "회원가입 완료! 반가워요." else "로그인 완료!",
+                                Toast.LENGTH_SHORT).show()
+                            render(returnTo)
+                        }.onFailure { err ->
+                            feedback.setTextColor(Color.rgb(181, 58, 72))
+                            feedback.text = err.message ?: "로그인 세션 저장 오류"
+                        }
+                    }.onFailure { err ->
+                        feedback.setTextColor(Color.rgb(181, 58, 72))
+                        feedback.text = err.message ?: "가입·로그인 중 오류가 발생했어."
+                    }
+                }
+            }.start()
+        }
+        formCard.addView(submit)
+        formCard.addView(gap(15))
+        formCard.addView(label(
+            if (authModeRegister) "이미 계정이 있다면 위의 '로그인' 탭을 눌러 줘."
+            else "처음 방문했다면 위의 '회원가입' 탭을 눌러 줘.",
+            12f, secondary
+        ))
+        page.addView(formCard)
+        page.addView(gap(16))
+        page.addView(label("VPE는 계정마다 차량 성향과 대화 내역을 분리해 저장합니다.\\n" +
+            "비밀번호 원문은 서버에 저장하지 않습니다.", 12f, secondary))
+        page.addView(gap(15))
+    }
+
+    private fun completeAccountAuth(data: JSONObject) {
+        val nextAccount = data.getString("username")
+        val session = data.getString("token")
+        require(nextAccount.isNotBlank() && session.isNotBlank()) {
+            "서버에서 로그인 정보를 받지 못했어."
+        }
+        // Persist session first. If encryption fails, the previous account stays intact.
+        VpeSecureSession.save(this, session)
+        val previousAccount = accountName()
+        if (previousAccount.isNotEmpty() && previousAccount != nextAccount) {
+            identity = null
+            hpe = null
+            observedSnapshot = null
+            latest = VehicleReadings()
+            cachedReport = false
+            store.clear()
+            hpeStore.clear()
+            remoteProfiles = JSONArray()
+        }
+        accountPrefs.edit().putString("username", nextAccount).apply()
+        activeChatScope = null
+        activateChatScope()
+        if (identity != null && hpe != null) syncCurrentVehicle(force = true)
+        refreshRemoteProfiles()
     }
 
     private fun logoutAccount() {
@@ -765,7 +948,7 @@ class MainActivity : Activity() {
         ))
         title.addView(gap(8))
         if (!hasSession()) {
-            title.addView(button("로그인 / 회원가입") { showAccountDialog() })
+            title.addView(button("로그인 / 회원가입") { openAuth() })
             title.addView(gap(7))
         }
         title.addView(button("GPT 서버 주소 설정", false) { showAiSettings() })
