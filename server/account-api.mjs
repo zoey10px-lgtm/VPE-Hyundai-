@@ -16,7 +16,7 @@ function json(res, status, payload) {
 function credentials(data) {
   const username = typeof data?.username === "string" ? data.username.toLowerCase().trim() : "";
   const password = data?.password;
-  if (!/^[a-z0-9_]{4,24}$/.test(username) ||
+  if (!/^[a-z0-9_가-힣]{2,24}$/u.test(username) ||
       typeof password !== "string" || password.length < 8 || password.length > 128) {
     return null;
   }
