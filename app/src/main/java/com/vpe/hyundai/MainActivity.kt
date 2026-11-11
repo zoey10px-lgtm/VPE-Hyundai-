@@ -1062,6 +1062,8 @@ class MainActivity : Activity() {
         val snapshot = if (demo) observedSnapshot else null
         val vehicle = JSONObject()
             .put("odometerKm", value(if (demo) snapshot?.odometerKm else latest.odometerKm))
+            .put("modelYear", value(if (demo) null else latest.modelYear))
+            .put("modelYearSource", value(if (demo || latest.modelYear == null) null else "VIN-derived"))
             .put("energyPercent", value(if (demo) snapshot?.fuelPercent else latest.energyPercent()))
             .put("actualCabinC", value(if (demo) null else latest.cabinTemperatureC))
             .put("targetCabinC", value(if (demo) null else latest.targetTemperatureC))
@@ -1082,12 +1084,12 @@ class MainActivity : Activity() {
         val base = observedSnapshot ?: id?.lastLearned
         val voice = id?.voiceBlueprint
         val snap = JSONObject()
-            .put("ageYears", value(base?.ageYears))
+            .put("ageYears", value(if (demo) base?.ageYears else latest.modelYear?.let { java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) - it }))
             .put("odometerKm", value(base?.odometerKm))
             .put("fuelPercent", value(base?.fuelPercent))
-            .put("maintenanceScore", value(base?.maintenanceScore))
-            .put("explorationRatio", value(base?.explorationRatio))
-            .put("longTripRatio", value(base?.longTripRatio))
+            .put("maintenanceScore", value(if (demo) base?.maintenanceScore else null))
+            .put("explorationRatio", value(if (demo) base?.explorationRatio else null))
+            .put("longTripRatio", value(if (demo) base?.longTripRatio else null))
         val voiceJson = JSONObject()
             .put("genderExpression", value(voice?.genderExpression))
             .put("perceivedAge", value(voice?.perceivedAge))
@@ -1384,7 +1386,7 @@ class MainActivity : Activity() {
         val year = Calendar.getInstance().get(Calendar.YEAR)
         val existing = identity?.takeIf { it.vehicleKey == key && !demo }
         // Neutral attributes are explicitly unobserved, not spoofed SDK measurements.
-        val seed = VehicleSnapshot(10.0, km, latest.energyPercent() ?: 50.0,
+        val seed = VehicleSnapshot(latest.modelYear?.let { (year - it).toDouble() } ?: 10.0, km, latest.energyPercent() ?: 50.0,
             50.0, 0.5, 0.5)
         val next = if (existing == null) seed else
             VehicleDataMapper.merge(observedSnapshot ?: existing.lastLearned, latest, year)
@@ -1440,7 +1442,10 @@ class MainActivity : Activity() {
             hvacOn = readings.hvacOn,
             charging = readings.charging,
             parked = readings.parked,
-            safetyWarning = readings.safetyWarning
+            safetyWarning = readings.safetyWarning,
+            modelAgeYears = if (demo) snapshot.ageYears else readings.modelYear?.let {
+                (Calendar.getInstance().get(Calendar.YEAR) - it).toDouble()
+            }
         )
         val previous = hpe?.takeIf { it.key == key }
             ?: if (demo) null else hpeStore.load(key)
