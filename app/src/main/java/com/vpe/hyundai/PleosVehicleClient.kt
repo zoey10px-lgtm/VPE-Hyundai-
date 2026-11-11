@@ -344,7 +344,8 @@ class PleosVehicleClient(context: Context) {
                         readCRNFallback()
                     } else {
                         report("VIN_OK: 차량 ID 확인 (원문 비저장)",
-                            VehicleReadings(vehicleKey = fingerprint("VIN:" + vin)))
+                            VehicleReadings(vehicleKey = fingerprint("VIN:" + vin),
+                                modelYear = inferModelYearFromVin(vin)))
                     }
                 },
                 onFailed = { error ->
@@ -356,6 +357,22 @@ class PleosVehicleClient(context: Context) {
             report("VIN_ERROR: " + safeMessage(error), null)
             readCRNFallback()
         }
+    }
+
+    /**
+     * Decode a model-year candidate from an actual SDK VIN, not a generated fixture.
+     * The 10th VIN character repeats every 30 years. This chooses the modern cycle;
+     * it is a VIN-derived estimate and not a direct model-year property response.
+     */
+    private fun inferModelYearFromVin(rawVin: String): Int? {
+        val vin = rawVin.trim().uppercase(java.util.Locale.ROOT)
+        if (vin.length != 17 || vin.any { !(it in 'A'..'Z' || it in '0'..'9') || it in "IOQ" }) return null
+        val yearCodes = "ABCDEFGHJKLMNPRSTVWXY123456789"
+        val cycleIndex = yearCodes.indexOf(vin[9])
+        if (cycleIndex < 0) return null
+        val thisYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+        return listOf(2010 + cycleIndex, 1980 + cycleIndex)
+            .firstOrNull { it in 2010..thisYear }
     }
 
     private fun fingerprint(value: String): String {
