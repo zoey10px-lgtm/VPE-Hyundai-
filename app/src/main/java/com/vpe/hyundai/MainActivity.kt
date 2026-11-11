@@ -1086,7 +1086,7 @@ class MainActivity : Activity() {
         val snap = JSONObject()
             .put("ageYears", value(if (demo) base?.ageYears else latest.modelYear?.let { java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) - it }))
             .put("odometerKm", value(base?.odometerKm))
-            .put("fuelPercent", value(base?.fuelPercent))
+            .put("fuelPercent", value(if (demo) base?.fuelPercent else latest.energyPercent()))
             .put("maintenanceScore", value(if (demo) base?.maintenanceScore else null))
             .put("explorationRatio", value(if (demo) base?.explorationRatio else null))
             .put("longTripRatio", value(if (demo) base?.longTripRatio else null))
