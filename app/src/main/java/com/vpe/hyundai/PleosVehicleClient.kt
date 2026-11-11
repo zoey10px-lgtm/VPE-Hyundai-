@@ -236,6 +236,81 @@ class PleosVehicleClient(context: Context) {
             report("EV_CAP_ERROR: " + safeMessage(error), null)
         }
 
+        // Additional public read-only Vehicle SDK sources. Never replace a failed
+        // read with fabricated travel or warning values.
+        try {
+            vehicle.getOdometer().getTripCumulativeDrivingDistance(
+                onComplete = { value ->
+                    report("TRIP_DISTANCE: " + (value?.toString() ?: "EMPTY"),
+                        value?.let { VehicleReadings(tripDistanceRaw = it.toString()) })
+                },
+                onFailed = { e -> report("TRIP_DISTANCE_ERROR: " + safeMessage(e), null) }
+            )
+        } catch (e: Exception) {
+            report("TRIP_DISTANCE_ERROR: " + safeMessage(e), null)
+        }
+        try {
+            vehicle.getOdometer().getTripCumulativeDrivingTime(
+                onComplete = { value ->
+                    report("TRIP_TIME: " + (value?.toString() ?: "EMPTY"),
+                        value?.let { VehicleReadings(tripTimeRaw = it.toString()) })
+                },
+                onFailed = { e -> report("TRIP_TIME_ERROR: " + safeMessage(e), null) }
+            )
+        } catch (e: Exception) {
+            report("TRIP_TIME_ERROR: " + safeMessage(e), null)
+        }
+        try {
+            vehicle.getDrivingMode().getCurrentDrivingModeState(
+                onComplete = { mode ->
+                    report("DRIVE_MODE: " + (mode?.toString() ?: "EMPTY"),
+                        mode?.let { VehicleReadings(drivingMode = it.toString()) })
+                },
+                onFailed = { e -> report("DRIVE_MODE_ERROR: " + safeMessage(e), null) }
+            )
+        } catch (e: Exception) {
+            report("DRIVE_MODE_ERROR: " + safeMessage(e), null)
+        }
+        try {
+            vehicle.getSafety().hasLowWasherFluidWarning(
+                onComplete = { value ->
+                    val observed = value?.toString()?.lowercase(java.util.Locale.ROOT)
+                    val warning = when (observed) {
+                        "true" -> true
+                        "false" -> false
+                        else -> null
+                    }
+                    report("WASHER_WARNING: " + (observed ?: "EMPTY"),
+                        warning?.let { VehicleReadings(washerFluidWarning = it) })
+                },
+                onFailed = { e -> report("WASHER_WARNING_ERROR: " + safeMessage(e), null) }
+            )
+        } catch (e: Exception) {
+            report("WASHER_WARNING_ERROR: " + safeMessage(e), null)
+        }
+        try {
+            vehicle.getSafety().getEngineOilLevelState(
+                onComplete = { state ->
+                    report("ENGINE_OIL: " + (state?.toString() ?: "EMPTY"),
+                        state?.let { VehicleReadings(engineOilState = it.toString()) })
+                },
+                onFailed = { e -> report("ENGINE_OIL_ERROR: " + safeMessage(e), null) }
+            )
+        } catch (e: Exception) {
+            report("ENGINE_OIL_ERROR: " + safeMessage(e), null)
+        }
+        try {
+            vehicle.getSafety().getBrakeFluidLevelState(
+                onComplete = { state ->
+                    report("BRAKE_FLUID: " + (state?.toString() ?: "EMPTY"),
+                        state?.let { VehicleReadings(brakeFluidState = it.toString()) })
+                },
+                onFailed = { e -> report("BRAKE_FLUID_ERROR: " + safeMessage(e), null) }
+            )
+        } catch (e: Exception) {
+            report("BRAKE_FLUID_ERROR: " + safeMessage(e), null)
+        }
+
         // Read-only climate context; each getter is independent. The SDK callback
         // is the only source of truth. A missing/unsupported reading remains null.
         try {
