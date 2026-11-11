@@ -24,6 +24,8 @@ Six-stage **psychology-inspired vehicle persona engine**: actual Pleos signals �
 
 **[Read the full HPE architecture, formulas, inputs, SDK status and acceptance tests](docs/HPE-ARCHITECTURE.md).**
 
+**[SDK 실측/미수신 데이터 연결 표 및 성격 알고리즘 수정 위치](docs/SDK-DATA-MATRIX.md)** (2026-11-11 갱신).
+
 ### New in v0.6.0
 
 - **MBTI** (continuous E/N/T/J axes) replaces the displayed voice age group; feminine/masculine voice blueprint identity remains.
