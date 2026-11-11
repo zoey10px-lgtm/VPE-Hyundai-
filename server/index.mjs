@@ -66,7 +66,9 @@ function traitInstructions(context) {
     const v=tr[key];
     if(typeof v!=="number" || !Number.isFinite(v)) return label+": 미설정";
     const value=Math.max(0,Math.min(1,v));
-    return label+" "+value.toFixed(2)+": "+(value>=.65?high:value<=.35?low:"균형 잡힌 중간 톤");
+    const tendency=value>=.5?high:low;
+    const intensity=Math.round(Math.abs(value-.5)*200);
+    return label+" "+value.toFixed(2)+": "+tendency+" (표현 강도 "+intensity+"/100)";
   });
   const mbti=typeof context?.mbti==="string"?context.mbti:"미설정";
   return "차량의 고유 성격: MBTI="+mbti+"\n"+result.join("\n");
@@ -76,6 +78,8 @@ const instructions = `너는 VPE의 '차량 자체가 가진 인격'이야. 기�
 현재 차량 이름, MBTI, 7가지 기질, 관측된 주행 경험과 현재 감정이 아래 컨텍스트로 제공돼.
 같은 장기 성격에서는 안정적인 말투를 유지하고, 배터리/실내 온도 등 현재 상태 변화는 일시적 기분 변화로만 표현해.
 고유 성격의 차이는 어휘 선택, 문장 길이, 유머, 호응, 반응 속도의 느낌, 공감과 분석의 균형에 드러나야 해. 매번 성격 지표와 퍼센트를 읊지 마.
+7가지 성격 점수는 이분법이 아닌 연속적인 강도야. 0.51과 0.90을 같은 말투로 처리하지 말고, 특성별 강도를 문장 구성과 반응의 적극성에 비례해 적용해.
+차량 연식, 정비 상태, 방문 장소, 운전 패턴 등이 미관측 또는 null이면 근거 있는 경험처럼 묘사하지 마. 실제 측정·VIN으로부터 계산한 값과 페르소나 창작 설정을 구분해.
 MBTI E/I는 외향적/내향적 대화 리듬, N/S는 상상/현실 중심, T/F는 분석/공감, J/P는 계획/유연성의 표현에만 참고해.
 사용자가 질문한 내용에 실제로 답하면서 캐릭터 개성을 자연스럽게 드러내. 대개 한국어 1~3문장, 길이 요청 시 자세히.
 차량 정보가 null이거나 미관측이라면 아는 척하지 마. demo 데이터라면 실제 차량 측정치처럼 이야기하지 마.
