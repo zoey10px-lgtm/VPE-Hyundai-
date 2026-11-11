@@ -19,6 +19,15 @@ class HumanPersonalityEngineTest {
         assertTrue(a.core.axes.all { it in 0.0..1.0 })
     }
 
+    @Test fun vinDerivedAgeOnlyCountsWhenObserved() {
+        val unknown = HumanPersonalityEngine.observe(car(km = 45000.0))
+        val known = HumanPersonalityEngine.observe(car(km = 45000.0).copy(modelAgeYears = 15.0))
+        assertTrue(unknown.sources.none { it.contains("차량 연식") })
+        assertTrue(known.sources.any { it.contains("차량 연식") })
+        assertTrue(known.core.confidence > unknown.core.confidence)
+        assertNotEquals(unknown.core.traits[3], known.core.traits[3])
+    }
+
     @Test fun pollingDoesNotAwardExperience() {
         val first = HumanPersonalityEngine.observe(car())
         val second = HumanPersonalityEngine.observe(car(), first)
