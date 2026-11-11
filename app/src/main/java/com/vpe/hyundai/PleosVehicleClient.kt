@@ -446,8 +446,10 @@ class PleosVehicleClient(context: Context) {
         val cycleIndex = yearCodes.indexOf(vin[9])
         if (cycleIndex < 0) return null
         val thisYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+        // Prefer the recent cycle; fall back to 1980-2009 only when
+        // the recent cycle is still in the future.
         return listOf(2010 + cycleIndex, 1980 + cycleIndex)
-            .firstOrNull { it in 2010..thisYear }
+            .firstOrNull { it in 1980..thisYear }
     }
 
     private fun fingerprint(value: String): String {
