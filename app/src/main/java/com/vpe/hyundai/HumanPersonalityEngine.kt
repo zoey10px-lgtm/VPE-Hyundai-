@@ -24,7 +24,8 @@ data class HpeSignals(
     val safetyWarning: Boolean? = null,
     val explorationRatio: Double? = null,
     val regularityRatio: Double? = null,
-    val interactionRatio: Double? = null
+    val interactionRatio: Double? = null,
+    val modelAgeYears: Double? = null
 )
 
 data class HpeCore(
@@ -85,7 +86,7 @@ data class HpeState(
 )
 
 object HumanPersonalityEngine {
-    const val VERSION = 1
+    const val VERSION = 2
     private fun clamp(x: Double) = x.coerceIn(0.0, 1.0)
     private fun ratio(x: Double?) = x?.takeIf { it.isFinite() && it in 0.0..1.0 }
     private fun normal(x: Double) = clamp(x)
@@ -103,6 +104,13 @@ object HumanPersonalityEngine {
         val social = ratio(s.interactionRatio)
         val experience = s.odometerKm?.takeIf { it.isFinite() && it >= 0.0 }
             ?.let { clamp(it / 250000.0) }
+        val modelAge = s.modelAgeYears?.takeIf { it.isFinite() && it in 0.0..60.0 }
+            ?.let { clamp(it / 25.0) }
+        val seasoning = when {
+            experience != null && modelAge != null -> .65 * experience + .35 * modelAge
+            experience != null -> experience
+            else -> modelAge
+        }
         fun base(name: String) = .5 + .28 * (unitSeed(s.vehicleKey, name) - .5)
         val axes = listOf(
             clamp(base("E") + (social?.let { .28 * (it - .5) } ?: 0.0)),
@@ -115,15 +123,15 @@ object HumanPersonalityEngine {
             clamp(.23 + .54 * e + .10 * (experience ?: .5)),
             clamp(.18 + .66 * n + .10 * (explore ?: .5)),
             clamp(.25 + .52 * (1.0 - t) + .10 * (social ?: .5)),
-            clamp(.32 + .32 * (experience ?: .5) + .20 * e),
-            clamp(.22 + .55 * j + .12 * t),
+            clamp(.32 + .32 * (seasoning ?: .5) + .20 * e),
+            clamp(.22 + .55 * j + .12 * t + .08 * ((modelAge ?: .5) - .5)),
             clamp(.18 + .55 * (1.0 - j) + .18 * e),
             clamp(.20 + .60 * e + .10 * n)
         )
         // Four MBTI axes: only E/N/J have directly relevant optional
         // behavioural evidence. T/F remains an explicit seeded style axis.
-        val evidence = listOfNotNull(s.odometerKm, explore, regular, social).size
-        return HpeCore(axes, traits, clamp(evidence / 4.0))
+        val evidence = listOfNotNull(s.odometerKm, explore, regular, social, modelAge).size
+        return HpeCore(axes, traits, clamp(evidence / 5.0))
     }
 
     /** Sensor polls are not experience events. Keep first and last readings. */
@@ -256,6 +264,7 @@ object HumanPersonalityEngine {
         val style = express(core, mood, s)
         val sources = buildList {
             if (s.odometerKm != null) add("주행거리: 실제 관측값")
+            if (s.modelAgeYears != null) add("차량 연식: SDK VIN으로부터 해석한 모델연도")
             if (s.energyPercent != null) add("에너지: 실제 관측값")
             if (s.actualCabinC != null) add("실내 현재온도: 수신값")
             if (s.targetCabinC != null) add("목표 온도: 설정값")
