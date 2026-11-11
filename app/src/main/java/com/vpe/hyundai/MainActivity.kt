@@ -1070,7 +1070,13 @@ class MainActivity : Activity() {
             .put("hvacOn", value(if (demo) null else latest.hvacOn))
             .put("chargingSwitchOn", value(if (demo) null else latest.charging))
             .put("parked", value(if (demo) null else latest.parked))
-            .put("safetyWarning", value(if (demo) null else latest.safetyWarning))
+            .put("safetyWarning", value(if (demo) null else if (latest.safetyWarning == true || latest.washerFluidWarning == true) true else null))
+            .put("tripDistanceSdkRaw", value(if (demo) null else latest.tripDistanceRaw))
+            .put("tripTimeSdkRaw", value(if (demo) null else latest.tripTimeRaw))
+            .put("drivingMode", value(if (demo) null else latest.drivingMode))
+            .put("washerFluidWarning", value(if (demo) null else latest.washerFluidWarning))
+            .put("engineOilState", value(if (demo) null else latest.engineOilState))
+            .put("brakeFluidState", value(if (demo) null else latest.brakeFluidState))
         val memory = JSONObject()
             .put("firstKm", value(state.memory.firstKm))
             .put("lastKm", value(state.memory.lastKm))
@@ -1254,6 +1260,18 @@ class MainActivity : Activity() {
         sourceCard.addView(dataRow("EV 충전 스위치", latest.charging?.toString() ?: "미수신"))
         sourceCard.addView(gap(13))
         sourceCard.addView(dataRow("주차 여부", latest.parked?.toString() ?: "미수신"))
+        sourceCard.addView(gap(13))
+        sourceCard.addView(dataRow("트립 거리(SDK 원값)", latest.tripDistanceRaw ?: "미수신"))
+        sourceCard.addView(gap(13))
+        sourceCard.addView(dataRow("트립 시간(SDK 원값)", latest.tripTimeRaw ?: "미수신"))
+        sourceCard.addView(gap(13))
+        sourceCard.addView(dataRow("드라이빙 모드", latest.drivingMode ?: "미수신"))
+        sourceCard.addView(gap(13))
+        sourceCard.addView(dataRow("워셔액 부족 경고", latest.washerFluidWarning?.toString() ?: "미수신"))
+        sourceCard.addView(gap(13))
+        sourceCard.addView(dataRow("엔진오일 상태", latest.engineOilState ?: "미수신"))
+        sourceCard.addView(gap(13))
+        sourceCard.addView(dataRow("브레이크액 상태", latest.brakeFluidState ?: "미수신"))
         page.addView(sourceCard)
         hpe?.let { state ->
             page.addView(gap(14))
@@ -1334,7 +1352,13 @@ class MainActivity : Activity() {
                             hvacOn = reading.hvacOn ?: latest.hvacOn,
                             charging = reading.charging ?: latest.charging,
                             parked = reading.parked ?: latest.parked,
-                            safetyWarning = reading.safetyWarning ?: latest.safetyWarning
+                            safetyWarning = reading.safetyWarning ?: latest.safetyWarning,
+                            tripDistanceRaw = reading.tripDistanceRaw ?: latest.tripDistanceRaw,
+                            tripTimeRaw = reading.tripTimeRaw ?: latest.tripTimeRaw,
+                            drivingMode = reading.drivingMode ?: latest.drivingMode,
+                            washerFluidWarning = reading.washerFluidWarning ?: latest.washerFluidWarning,
+                            engineOilState = reading.engineOilState ?: latest.engineOilState,
+                            brakeFluidState = reading.brakeFluidState ?: latest.brakeFluidState
                         )
                         if (connecting && latest.odometerKm != null &&
                             latest.energyPercent() != null && latest.vehicleKey != null) {
@@ -1444,7 +1468,7 @@ class MainActivity : Activity() {
             hvacOn = readings.hvacOn,
             charging = readings.charging,
             parked = readings.parked,
-            safetyWarning = readings.safetyWarning,
+            safetyWarning = if (readings.safetyWarning == true || readings.washerFluidWarning == true) true else null,
             modelAgeYears = if (demo) snapshot.ageYears else readings.modelYear?.let {
                 (Calendar.getInstance().get(Calendar.YEAR) - it).toDouble()
             }
