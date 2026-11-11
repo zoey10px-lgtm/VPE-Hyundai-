@@ -1243,6 +1243,8 @@ class MainActivity : Activity() {
         sourceCard.addView(gap(13))
         sourceCard.addView(dataRow("Vehicle identity", if (latest.vehicleKey != null) "암호화 식별값 확인" else "미수신"))
         sourceCard.addView(gap(13))
+        sourceCard.addView(dataRow("모델 연도(VIN 추정)", latest.modelYear?.let { "${it}년 · VIN 해석" } ?: "미확인"))
+        sourceCard.addView(gap(13))
         sourceCard.addView(dataRow("실내 현재온도", latest.cabinTemperatureC?.let { "$it°C" } ?: "미수신"))
         sourceCard.addView(gap(13))
         sourceCard.addView(dataRow("공조 목표온도", latest.targetTemperatureC?.let { "$it°C" } ?: "미수신"))
