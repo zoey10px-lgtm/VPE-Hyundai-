@@ -30,6 +30,7 @@ class HpeStore(context: Context) {
             .put("social", m.lastInteraction)
             .put("highlights", JSONArray().also { a -> m.highlights.forEach { a.put(it) } })
             .put("energy", s.energyPercent)
+            .put("modelAgeYears", s.modelAgeYears)
             .put("cabin", s.actualCabinC)
             .put("target", s.targetCabinC)
             .put("hvac", s.hvacOn)
@@ -63,7 +64,7 @@ class HpeStore(context: Context) {
         val s = HpeSignals(key, m.lastKm, num("energy"), num("cabin"),
             num("target"), boolean("hvac"), boolean("charging"),
             boolean("parked"), boolean("warning"), m.lastExploration,
-            m.lastRegularity, m.lastInteraction)
+            m.lastRegularity, m.lastInteraction, modelAgeYears = num("modelAgeYears"))
         val appraisal = HumanPersonalityEngine.appraise(s)
         val affect = HumanPersonalityEngine.affect(appraisal,s)
         HpeState(key, core, m, affect,
