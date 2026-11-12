@@ -1,6 +1,7 @@
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from "node:crypto";
 import { database, inTransaction, makeId, databaseConfigured } from "./db.mjs";
 import { validProactiveKind } from "./proactive-events.mjs";
+import {contrastPersona,COMPARISON_QUESTION} from "./persona-compare.mjs";
 
 const sha = value => createHash("sha256").update(value).digest("hex");
 const issueToken = () => randomBytes(32).toString("base64url");
@@ -155,7 +156,23 @@ export async function handleV2(req,res,url,body,callModel) {
        ORDER BY m.id DESC LIMIT 60`,[user.id,key]);
     return json(res,200,{messages:r.rows.reverse()});
   }
-  if(req.method==="POST" && path==="/api/proactive") {
+  if(req.method==="POST" && path==="/api/persona-compare") {
+     // Test tool only: identical observed vehicle facts and question,
+     // contrasted HPE style. Never writes a fake conversation.
+     if(!safeContext(body?.context)) return json(res,400,{error:"INVALID_PERSONA_CONTEXT"});
+     let actual,contrasted;
+     try { ({actual,contrasted}=contrastPersona(body.context)); }
+     catch { return json(res,400,{error:"PERSONA_CONTEXT_INCOMPLETE"}); }
+     const [actualReply,contrastReply]=await Promise.all([
+       callModel(COMPARISON_QUESTION,actual,[]),
+       callModel(COMPARISON_QUESTION,contrasted,[])
+     ]);
+     return json(res,200,{actualReply,contrastReply,
+       actualMbti:actual.mbti,contrastMbti:contrasted.mbti,
+       controlledQuestion:COMPARISON_QUESTION,
+       note:"동일 실제 차량 신호, 테스트용으로 반전한 HPE 성격만 비교; 대화 저장 없음"});
+   }
+   if(req.method==="POST" && path==="/api/proactive") {
      // The vehicle initiates a turn; never insert fabricated user speech.
      if(invalidKey(body?.vehicleKey)||!safeContext(body?.context)||
         !validProactiveKind(body?.eventKind))
