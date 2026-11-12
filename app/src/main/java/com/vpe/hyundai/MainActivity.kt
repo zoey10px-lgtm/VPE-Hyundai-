@@ -1138,8 +1138,8 @@ class MainActivity : Activity() {
         if (demo) return
         val state = hpe ?: return
         val now = System.currentTimeMillis()
-        val event = proactiveEngine.next(latest, state, now)
-            ?: if (firstConnection) proactiveEngine.greeting(state, now) else null
+        val event = (proactiveEngine.next(latest, state, now)
+            ?: if (firstConnection) proactiveEngine.greeting(state, now) else null)
             ?: return
         lastProactiveText = event.text
         diagnosticLogs.add("PROACTIVE_" + event.kind.uppercase(Locale.ROOT))
