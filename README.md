@@ -1,6 +1,13 @@
 # VPE Hyundai · Vehicle Persona Engine
 
-**Latest: v1.0.0 — accounts, cloud-ready multi-vehicle profiles and GPT personality**
+**Latest: v1.1.2 — live telemetry-to-emotion updates, proactive persona speech, and Android TTS**
+
+- Real SDK readings merge automatically; event-based speech covers low SOC, thermal discomfort, charging switch, and washer warning, with debounce and priority.
+- Car-specific TTS rate and pitch are applied if an Android Korean TTS engine is available. Pleos AVD audio output has not been verified on the user's host.
+- HPE v3 reduces unobserved VIN-seed influence and explicitly weights newly available long-run evidence, persistent vehicle state and deduplication. See [architecture audit](docs/HPE-ARCHITECTURE.md).
+- Existing accounts, vehicles and v2 HPE storage can be read by the new version. The production SDK adapter still lacks verified speed/road-limit and long-run driving pattern ratios.
+
+**Historical: v1.0.0 — accounts, cloud-ready multi-vehicle profiles and GPT personality**
 
 New in v1.0.0:
 - Login/register UI for individual VPE accounts (passwords hashed on server, session tokens encrypted on Android).
