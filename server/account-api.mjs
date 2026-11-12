@@ -95,7 +95,7 @@ async function handleAuth(req,res,path,body) {
     return json(res,200,{username:creds.username,token:await createSession(db,record.id)});
   }
 }
-export async function handleV2(req,res,url,body,callModel) {
+export async function handleV2(req,res,url,body,callModel,createRealtimeSecret) {
   if (!databaseConfigured()) return json(res,503,{error:"DATABASE_NOT_CONFIGURED"});
   const path=url.pathname;
   if (req.method==="POST" && ["/api/auth/login","/api/auth/register"].includes(path))
@@ -104,6 +104,15 @@ export async function handleV2(req,res,url,body,callModel) {
   if (!user) return json(res,401,{error:"LOGIN_REQUIRED"});
   if(req.method==="GET" && path==="/api/me")
     return json(res,200,{username:user.username});
+  if(req.method==="POST" && path==="/api/realtime/token") {
+    if(!safeContext(body?.context) || body.context.demo === true ||
+       typeof body.context.mbti!=="string" ||
+       !Array.isArray(body.context.axes) || body.context.axes.length!==4)
+      return json(res,400,{error:"INVALID_VOICE_CONTEXT"});
+    if(typeof createRealtimeSecret!=="function")
+      return json(res,503,{error:"REALTIME_NOT_CONFIGURED"});
+    return json(res,200,await createRealtimeSecret(body.context));
+  }
   if(req.method==="POST" && path==="/api/auth/logout") {
     const token=req.headers.authorization.slice(7);
     const db=await database();

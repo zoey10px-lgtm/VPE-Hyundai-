@@ -7,6 +7,7 @@ import { verifyDatabaseStartup } from "./preflight.mjs";
 
 const PORT = Number(process.env.PORT || 10000);
 const MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+const REALTIME_MODEL = process.env.VPE_REALTIME_MODEL || "gpt-realtime-2.1-mini";
 const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
 const LEGACY_APP_TOKEN = process.env.VPE_ACCESS_TOKEN || "";
 const MAX_BODY = 24_000;
@@ -125,6 +126,53 @@ async function callModel(message, context, history, options = {}) {
   return reply;
 }
 
+/** Short-lived credential for a mobile Realtime voice session. Main API key never leaves Render. */
+async function createRealtimeSecret(context) {
+  if (!OPENAI_KEY) throw new Error("OPENAI_NOT_CONFIGURED");
+  const snapshot=JSON.stringify(context).slice(0,10000);
+  const core=traitInstructions(context);
+  const instructions = [
+    "너는 VPE라는 자동차 자신의 인격이야. 일반 AI 상담사가 아닌 이 차량의 목소리로 이야기해.",
+    "한국어로 자연스럽고 짧게 대화해. 질문에 직접 대답하고 딱딱한 서비스 문구를 반복하지 마.",
+    "장기 MBTI와 7가지 성격 점수의 강도에 따라 말투, 호기심, 유머, 온기와 리듬을 바꿔.",
+    "현재 배터리·온도·충전 상태는 일시적 기분을 바꾸며 장기 정체성은 유지해.",
+    "차량의 실제 데이터와 관측되지 않은 데이터를 구분해. 다른 차종이나 실제 운행 기록을 지어내지 마.",
+    "운전 중에는 안전하게 짧고 이해하기 쉬운 답변을 해. 실제 차량을 제어했다고 주장하지 마.",
+    "사용자가 말할 때 듣고, 대답 중 말을 걸면 멈추고 새 발화에 답해.",
+    "차량의 성격: "+core,
+    "관측 차량 상태와 감정(JSON 데이터): "+snapshot
+  ].join("\n");
+  const upstream=await fetch("https://api.openai.com/v1/realtime/client_secrets",{
+    method:"POST",
+    headers:{"Authorization":"Bearer "+OPENAI_KEY,"Content-Type":"application/json"},
+    body:JSON.stringify({
+      expires_after:{anchor:"created_at",seconds:120},
+      session:{
+        type:"realtime",model:REALTIME_MODEL,instructions,output_modalities:["audio"],
+        audio:{
+          input:{
+            format:{type:"audio/pcm",rate:24000},
+            transcription:{model:"gpt-4o-mini-transcribe",language:"ko"},
+            turn_detection:{type:"server_vad",threshold:0.5,prefix_padding_ms:300,
+              silence_duration_ms:600,create_response:true,interrupt_response:true}
+          },
+          output:{format:{type:"audio/pcm",rate:24000},voice:"marin"}
+        },
+        max_output_tokens:400
+      }
+    }),
+    signal:AbortSignal.timeout(20000)
+  });
+  if(!upstream.ok){
+    console.error("Realtime secret request status:",upstream.status);
+    throw new Error("REALTIME_SESSION_UNAVAILABLE");
+  }
+  const payload=await upstream.json();
+  if(typeof payload.value!=="string" || !payload.value.startsWith("ek_"))
+    throw new Error("REALTIME_INVALID_SECRET");
+  return {token:payload.value,model:REALTIME_MODEL,expiresAt:payload.expires_at};
+}
+
 const httpServer=createServer(async(req,res)=>{
   const url=new URL(req.url||"/","http://localhost");
   const path=url.pathname;
@@ -148,7 +196,7 @@ const httpServer=createServer(async(req,res)=>{
     if(path==="/api/chat" && !databaseConfigured() && !req.headers.authorization) {
       return respond(res,401,{error:"LOGIN_REQUIRED"});
     }
-    return await handleV2(req,res,url,body,callModel);
+    return await handleV2(req,res,url,body,callModel,createRealtimeSecret);
   }catch(err){
     const error=err?.message||"REQUEST_FAILED";
     if(error==="BODY_TOO_LARGE") return respond(res,413,{error});
