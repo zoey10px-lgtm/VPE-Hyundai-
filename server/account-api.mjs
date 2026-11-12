@@ -165,6 +165,30 @@ export async function handleV2(req,res,url,body,callModel,createRealtimeSecret) 
        ORDER BY m.id DESC LIMIT 60`,[user.id,key]);
     return json(res,200,{messages:r.rows.reverse()});
   }
+  if(req.method==="POST" && path==="/api/realtime/message") {
+    // Independently saved user/assistant voice transcript, no extra GPT call.
+    // A durable client event id makes retries safe after flaky emulator Wi-Fi.
+    const message=body?.content;
+    if(invalidKey(body?.vehicleKey)||!safeContext(body?.context)||
+       !["user","assistant"].includes(body?.role)||
+       typeof message!=="string"||!message.trim()||
+       message.length>2000||
+       typeof body?.eventId!=="string"||
+       !/^[a-zA-Z0-9_-]{8,80}$/.test(body.eventId))
+      return json(res,400,{error:"INVALID_VOICE_MESSAGE"});
+    const db=await database();
+    const vehicle=await upsertVehicle(
+      db,user.id,body.vehicleKey,body.context,body.vehicleName);
+    const saved=await db.query(
+      `INSERT INTO vpe_messages(user_id,vehicle_id,role,content,client_event_id)
+       VALUES($1,$2,$3,$4,$5)
+       ON CONFLICT (user_id,vehicle_id,client_event_id)
+         WHERE client_event_id IS NOT NULL DO NOTHING
+       RETURNING id`,
+      [user.id,vehicle.id,body.role,message.trim(),body.eventId]);
+    return json(res,200,{ok:true,saved:saved.rowCount===1,
+      duplicate:saved.rowCount===0});
+  }
   if(req.method==="POST" && path==="/api/persona-compare") {
      // Test tool only: identical observed vehicle facts and question,
      // contrasted HPE style. Never writes a fake conversation.

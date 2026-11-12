@@ -54,8 +54,13 @@ export async function database() {
             content TEXT NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
           );
+          ALTER TABLE vpe_messages
+            ADD COLUMN IF NOT EXISTS client_event_id VARCHAR(80);
           CREATE INDEX IF NOT EXISTS vpe_messages_scope
             ON vpe_messages(user_id, vehicle_id, id DESC);
+          CREATE UNIQUE INDEX IF NOT EXISTS vpe_voice_event_idempotency
+            ON vpe_messages(user_id, vehicle_id, client_event_id)
+            WHERE client_event_id IS NOT NULL;
         `);
         pool = candidate;
         return candidate;

@@ -94,6 +94,19 @@ object VpeAiClient {
         request(baseUrl, "/api/persona-compare", token,
             JSONObject().put("context", context))
 
+    /** Persists each finalized speech turn with idempotent retry, without another model call. */
+    fun saveRealtimeTurn(
+        baseUrl: String, token: String, vehicleKey: String, vehicleName: String,
+        context: JSONObject, role: String, content: String, eventId: String
+    ): Boolean {
+        val response=request(baseUrl, "/api/realtime/message", token,
+            JSONObject().put("vehicleKey", vehicleKey)
+                .put("vehicleName", vehicleName)
+                .put("context", context).put("role", role)
+                .put("content", content).put("eventId", eventId))
+        return response.optBoolean("ok", false)
+    }
+
     /** Returns an ephemeral Realtime credential; no permanent API key is stored on Android. */
     fun realtimeSecret(baseUrl: String, token: String, context: JSONObject): JSONObject =
         request(baseUrl, "/api/realtime/token", token,

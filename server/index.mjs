@@ -139,6 +139,8 @@ async function createRealtimeSecret(context) {
     "차량의 실제 데이터와 관측되지 않은 데이터를 구분해. 다른 차종이나 실제 운행 기록을 지어내지 마.",
     "운전 중에는 안전하게 짧고 이해하기 쉬운 답변을 해. 실제 차량을 제어했다고 주장하지 마.",
     "사용자가 말할 때 듣고, 대답 중 말을 걸면 멈추고 새 발화에 답해.",
+    "사용자의 발화가 잠깐 끊겨도 문장의 의미가 완결될 때까지 들어. 같은 화제로 자연스럽게 이어가.",
+    "마지막에 늘 정형적인 질문을 붙이지 말고, 상대가 한 말의 구체적인 내용에 직접 반응해.",
     "차량의 성격: "+core,
     "관측 차량 상태와 감정(JSON 데이터): "+snapshot
   ].join("\n");
@@ -153,8 +155,8 @@ async function createRealtimeSecret(context) {
           input:{
             format:{type:"audio/pcm",rate:24000},
             transcription:{model:"gpt-4o-mini-transcribe",language:"ko"},
-            turn_detection:{type:"server_vad",threshold:0.5,prefix_padding_ms:300,
-              silence_duration_ms:600,create_response:true,interrupt_response:true}
+            turn_detection:{type:"semantic_vad",eagerness:"medium",
+              create_response:true,interrupt_response:true}
           },
           output:{format:{type:"audio/pcm",rate:24000},voice:"marin"}
         },
