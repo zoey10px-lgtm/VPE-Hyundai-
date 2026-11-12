@@ -1478,7 +1478,6 @@ class MainActivity : Activity() {
                     }
                 }
             }
-        }
         liveSdkCallback = callback
         Thread { sdk.readVehicleData(callback) }.start()
     }
