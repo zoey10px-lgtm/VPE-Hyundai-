@@ -31,11 +31,15 @@ class VpeRealtimeVoice(private val listener: Listener) {
         fun onUserText(text: String)
         fun onVehicleText(text: String)
         fun onEnded(reason: String)
+        fun onDiagnostic(event: String)
     }
 
     private val http = OkHttpClient.Builder().pingInterval(15, TimeUnit.SECONDS).build()
-    private val audioQueue = LinkedBlockingQueue<ByteArray>(64)
+    // The Realtime server can send audio faster than the Pleos speaker plays.
+    // Buffer several complete utterances; never silently discard PCM chunks.
+    private val audioQueue = LinkedBlockingQueue<ByteArray>(320)
     private val transcript = StringBuilder()
+    private var stablePersonaInstructions = ""
     // In WebSocket mode playback lives on Android, so interruptions must
     // truncate audio the user did not hear from the model's conversation.
     private var outputItemId: String? = null
@@ -66,7 +70,8 @@ class VpeRealtimeVoice(private val listener: Listener) {
     private var microphoneThread: Thread? = null
     private var speakerThread: Thread? = null
 
-    fun start(ephemeralToken: String, model: String) {
+    fun start(ephemeralToken: String, model: String, personaInstructions: String) {
+        stablePersonaInstructions = personaInstructions.take(19_000)
         require(ephemeralToken.startsWith("ek_")) { "유효한 Realtime 임시 토큰이 없어." }
         require(model in setOf("gpt-realtime-2.1-mini", "gpt-realtime-2.1")) {
             "허용되지 않은 Realtime 모델이야."
@@ -119,6 +124,9 @@ class VpeRealtimeVoice(private val listener: Listener) {
                 }
             }
             "input_audio_buffer.speech_started" -> {
+                if (outputItemId != null || audioQueue.isNotEmpty()) {
+                    listener.onDiagnostic("AUDIO_INTERRUPTED: VAD_STARTED; queued=" + audioQueue.size)
+                }
                 truncateInterruptedSpeech()
                 audioQueue.clear()
                 runCatching {
@@ -151,7 +159,8 @@ class VpeRealtimeVoice(private val listener: Listener) {
                                     outputReceivedBytes=0L
                                 }
                                 outputReceivedBytes+=pcm.size
-                                audioQueue.offer(pcm)
+                                if (!audioQueue.offer(pcm))
+                                    listener.onDiagnostic("AUDIO_QUEUE_OVERFLOW: chunk=" + pcm.size)
                             }
                         }
                     listener.onStatus("VPE가 말하는 중…")
@@ -166,7 +175,23 @@ class VpeRealtimeVoice(private val listener: Listener) {
                 transcript.setLength(0)
                 if (finalText.isNotEmpty()) listener.onVehicleText(finalText)
             }
-            "response.done" -> listener.onStatus("마이크 켜짐 · 편하게 말해 줘")
+            "response.done" -> {
+                val response=json.optJSONObject("response")
+                val status=response?.optString("status").orEmpty()
+                val reason=response?.optJSONObject("status_details")?.toString().orEmpty()
+                listener.onDiagnostic("REALTIME_RESPONSE_DONE: status=" + status +
+                    if (reason.isBlank()) "" else " details=" + reason.take(180))
+                if (status == "incomplete" || status == "failed")
+                    listener.onStatus("VPE 답변 미완성 · " +
+                        if (reason.isBlank()) status else reason.take(95))
+                else listener.onStatus("마이크 켜짐 · 편하게 말해 줘")
+            }
+            "response.output_audio.done" -> {
+                listener.onDiagnostic("AUDIO_GENERATION_FINISHED: remaining=" + audioQueue.size)
+            }
+            "conversation.item.truncated" -> {
+                listener.onDiagnostic("AUDIO_TRUNCATED_BY_INTERRUPT")
+            }
             "error" -> {
                 val reason = json.optJSONObject("error")?.optString("message")
                     ?.take(160).orEmpty().ifBlank { "Realtime 요청 오류" }
@@ -263,11 +288,12 @@ class VpeRealtimeVoice(private val listener: Listener) {
     /** Update only the dynamic, observed persona; the server supplied initial safety rules. */
     fun updatePersona(context: JSONObject) {
         if (!active || !ready) return
-        val newGuidance = "너는 VPE 차량 자체의 인격이야. 자연스럽게 한국어로 대화해. " +
-            "이 차량의 장기 성격과 최근 감정만 말투에 반영해. " +
-            "SDK에 없는 사실이나 차량 조작 성공을 지어내지 마. " +
-            "운전 중에는 짧고 안전하게 답해. " +
-            "차량별 HPE 컨텍스트(JSON 데이터): " + context.toString().take(9_000)
+        // Preserve the complete seven-trait T/F/E/I persona contract from
+        // Render. Previous versions replaced it with a generic assistant prompt.
+        val newGuidance = stablePersonaInstructions +
+            "\n\n[최신 HPE 관측 상태: 이 수치가 더 새로운 데이터야]\n" +
+            context.toString().take(9_000) +
+            "\n처음 지정한 말투·T/F 반응 방식·음성 표현 스타일을 그대로 유지해."
         socket?.send(JSONObject()
             .put("type", "session.update")
             .put("session", JSONObject().put("type", "realtime")
