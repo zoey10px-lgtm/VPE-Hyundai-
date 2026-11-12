@@ -1366,7 +1366,7 @@ class MainActivity : Activity() {
                             runOnUiThread {
                                 if (!voiceActive) return@runOnUiThread
                                 stopRealtimeVoice()
-                                Toast.makeText(this, reason, Toast.LENGTH_LONG).show()
+                                Toast.makeText(this@MainActivity, reason, Toast.LENGTH_LONG).show()
                             }
                         }
                     })
