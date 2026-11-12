@@ -15,7 +15,7 @@ test("comparison reverses all 7 traits and four axes, keeping sensor facts",()=>
   const {actual,contrasted}=contrastPersona(context);
   assert.deepEqual(actual,context);
   assert.deepEqual(context,original);
-  assert.equal(contrasted.mbti,"IS TJ".replace(" ","")); // ENFJ => ISTP
+  assert.equal(contrasted.mbti,"ISTP"); // ENFJ => ISTP
   for (const name of Object.keys(context.traits))
     assert.equal(contrasted.traits[name],1-context.traits[name]);
   for (let i=0;i<4;i++)
