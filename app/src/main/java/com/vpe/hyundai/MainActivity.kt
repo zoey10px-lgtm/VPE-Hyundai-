@@ -1,11 +1,13 @@
 package com.vpe.hyundai
 
+import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.net.Uri
 import android.graphics.Color
@@ -61,6 +63,14 @@ class MainActivity : Activity() {
     private var lastProactiveText: String? = null
     private var lastLiveChange: String? = null
     private var proactiveStatus: String = "차량 연결 후 이벤트 감지 시작"
+    private val voicePermissionRequestCode = 7301
+    private var realtimeVoice: VpeRealtimeVoice? = null
+    private var voiceActive = false
+    private var voiceStarting = false
+    private var voiceDisplay = "가운데 VPE 오브를 눌러 음성 대화 시작"
+    private var voiceOrb: VpeWaveView? = null
+    private var voiceHint: TextView? = null
+    private var voicePersonaSignature: String? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var ttsStatus = "음성 엔진 초기화 중"
@@ -216,6 +226,8 @@ class MainActivity : Activity() {
         liveMessages = null
         liveChatScroll = null
         liveMoodStatus = null
+        voiceOrb = null
+        voiceHint = null
         root = column().apply { setBackgroundColor(cream) }
         val header = row().apply { setPadding(d(24), d(15), d(24), d(12)) }
         val logo = label("vpe.", 29f, violet, true)
@@ -288,15 +300,32 @@ class MainActivity : Activity() {
         hero.addView(header)
         val wave = VpeWaveView(this).apply {
             mode = when {
-                connecting -> VpeWaveView.Mode.CONNECTING
+                voiceStarting || connecting -> VpeWaveView.Mode.CONNECTING
+                voiceActive && voiceDisplay.contains("말하는 중") -> VpeWaveView.Mode.SPEAKING
+                voiceActive -> VpeWaveView.Mode.LISTENING
                 identity != null -> VpeWaveView.Mode.READY
                 else -> VpeWaveView.Mode.IDLE
             }
             affectIntensity = hpe?.expression?.motionIntensity?.toFloat() ?: 0.45f
             valence = hpe?.affect?.valence?.toFloat() ?: 0f
+            isClickable = true
+            isFocusable = true
+            contentDescription = if (voiceActive) "VPE 음성 대화 종료" else "VPE 음성 대화 시작"
+            setOnClickListener { toggleRealtimeVoice() }
         }
+        voiceOrb = wave
         hero.addView(wave, LinearLayout.LayoutParams(-1, d(166)))
+        val voiceCaption = label(voiceDisplay, 14f, if (voiceActive) teal else violet, true)
+            .apply { gravity = Gravity.CENTER }
+        voiceHint = voiceCaption
+        hero.addView(gap(8))
+        hero.addView(voiceCaption)
+        hero.addView(label(
+            if (voiceActive) "다시 누르면 마이크가 꺼져요"
+            else "터치하면 한국어 실시간 음성 대화가 시작돼요",
+            12f, secondary).apply { gravity = Gravity.CENTER })
         val mainTitle = when {
+            voiceActive -> "VPE와 실시간 음성 대화 중"
             connecting -> "당신의 차를 알아가는 중"
             demo -> "데모 페르소나가 준비됐어요"
             !environment.automotive -> "스마트폰에서 VPE 체험하기"
@@ -1242,6 +1271,154 @@ class MainActivity : Activity() {
             (energy?.let { " · 에너지 ${it.toInt()}%" } ?: "")
     }
 
+    private fun toggleRealtimeVoice() {
+        if (voiceActive) {
+            stopRealtimeVoice()
+            return
+        }
+        if (identity == null || hpe == null || demo) {
+            Toast.makeText(this, "Pleos 차량을 연결하고 내 VPE를 만든 다음 시작해 줘.",
+                Toast.LENGTH_LONG).show()
+            return
+        }
+        if (!hasSession()) {
+            Toast.makeText(this, "실시간 GPT 음성 대화는 VPE 로그인 후 사용할 수 있어.",
+                Toast.LENGTH_LONG).show()
+            return
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), voicePermissionRequestCode)
+            return
+        }
+        startRealtimeVoice()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == voicePermissionRequestCode) {
+            if (grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED) startRealtimeVoice()
+            else Toast.makeText(this, "마이크 권한이 있어야 음성으로 대화할 수 있어.",
+                Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun startRealtimeVoice() {
+        val id = identity ?: return
+        val state = hpe ?: return
+        if (voiceActive) return
+        voiceActive = true
+        voiceStarting = true
+        voicePersonaSignature = null
+        updateVoiceDisplay("실시간 음성 세션 연결 중…")
+        tts?.stop()
+        render("home")
+        val context = aiContext(state)
+        val token = sessionToken()
+        val endpoint = serverUrl()
+        val vehicleKey = id.vehicleKey
+        Thread {
+            val secret = runCatching { VpeAiClient.realtimeSecret(endpoint, token, context) }
+            runOnUiThread {
+                if (!voiceActive || identity?.vehicleKey != vehicleKey || isDestroyed) return@runOnUiThread
+                secret.onSuccess { credential ->
+                    val temp = credential.optString("token")
+                    val model = credential.optString("model")
+                    if (temp.isBlank() || model.isBlank()) {
+                        stopRealtimeVoice()
+                        Toast.makeText(this, "임시 음성 토큰이 비어 있어.", Toast.LENGTH_LONG).show()
+                        return@onSuccess
+                    }
+                    val session = VpeRealtimeVoice(object : VpeRealtimeVoice.Listener {
+                        override fun onStatus(status: String) {
+                            runOnUiThread {
+                                if (!voiceActive) return@runOnUiThread
+                                voiceStarting = false
+                                updateVoiceDisplay(status)
+                            }
+                        }
+                        override fun onUserText(text: String) {
+                            runOnUiThread {
+                                if (!voiceActive) return@runOnUiThread
+                                messages.add("나" to text)
+                                if (!demo) identity?.vehicleKey?.let {
+                                    patternTracker.recordInteraction(it)
+                                    updateHumanPersonality()
+                                }
+                                saveMessages()
+                                if (currentTab == "chat") render("chat")
+                                else updateVoiceDisplay("인식: " + text.take(76))
+                            }
+                        }
+                        override fun onVehicleText(text: String) {
+                            runOnUiThread {
+                                if (!voiceActive) return@runOnUiThread
+                                messages.add("VPE" to text)
+                                saveMessages()
+                                if (currentTab == "chat") render("chat")
+                                else updateVoiceDisplay("VPE: " + text.take(76))
+                            }
+                        }
+                        override fun onEnded(reason: String) {
+                            runOnUiThread {
+                                if (!voiceActive) return@runOnUiThread
+                                stopRealtimeVoice()
+                                Toast.makeText(this, reason, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    })
+                    realtimeVoice = session
+                    runCatching { session.start(temp, model) }.onFailure { e ->
+                        stopRealtimeVoice()
+                        Toast.makeText(this, "음성 연결 실패: " + e.message,
+                            Toast.LENGTH_LONG).show()
+                    }
+                }.onFailure { error ->
+                    stopRealtimeVoice()
+                    AlertDialog.Builder(this)
+                        .setTitle("VPE Realtime 연결 실패")
+                        .setMessage(
+                            (error.message ?: "실시간 음성 토큰 요청 실패") +
+                            "\nRender 최신 배포 및 OpenAI Realtime 사용 가능 여부를 확인해 줘.")
+                        .setPositiveButton("확인", null).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun updateVoiceDisplay(status: String) {
+        voiceDisplay = status
+        voiceHint?.text = status
+        voiceOrb?.mode = when {
+            voiceStarting -> VpeWaveView.Mode.CONNECTING
+            !voiceActive -> VpeWaveView.Mode.READY
+            status.contains("말하는 중") -> VpeWaveView.Mode.SPEAKING
+            else -> VpeWaveView.Mode.LISTENING
+        }
+    }
+
+    private fun refreshRealtimePersona() {
+        if (!voiceActive || voiceStarting) return
+        val state = hpe ?: return
+        val signature = state.core.axes.toString() + "|" + state.affect.toString()
+        if (signature == voicePersonaSignature) return
+        voicePersonaSignature = signature
+        realtimeVoice?.updatePersona(aiContext(state))
+    }
+
+    private fun stopRealtimeVoice() {
+        voiceActive = false
+        voiceStarting = false
+        voicePersonaSignature = null
+        realtimeVoice?.release()
+        realtimeVoice = null
+        voiceDisplay = "가운데 VPE 오브를 눌러 음성 대화 시작"
+        if (!isFinishing && !isDestroyed && currentTab == "home") render("home")
+    }
+
     private fun initializeTts() {
         tts = TextToSpeech(this) { status ->
             mainHandler.post {
@@ -1262,6 +1439,10 @@ class MainActivity : Activity() {
     }
 
     private fun speakVehicleText(text: String, showError: Boolean = false) {
+        if (voiceActive) {
+            realtimeVoice?.announce(text)
+            return
+        }
         if (!ttsReady) {
             if (showError) Toast.makeText(this, ttsStatus, Toast.LENGTH_LONG).show()
             return
@@ -1828,6 +2009,7 @@ class MainActivity : Activity() {
             store.save(evolved)
         }
         updateHumanPersonality()
+        refreshRealtimePersona()
         liveMoodStatus?.text = liveMoodSummary()
         proactiveOnVehicleChange()
         syncCurrentVehicle()
@@ -1949,6 +2131,8 @@ class MainActivity : Activity() {
         ++requestSerial
         stopLivePolling()
         mainHandler.removeCallbacksAndMessages(null)
+        realtimeVoice?.release()
+        realtimeVoice = null
         tts?.stop()
         tts?.shutdown()
         sdk.release()
