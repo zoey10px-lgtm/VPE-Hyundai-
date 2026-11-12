@@ -204,6 +204,7 @@ class MainActivity : Activity() {
         val logo = label("vpe.", 29f, violet, true)
         header.addView(logo, LinearLayout.LayoutParams(0, -2, 1f))
         header.addView(tag(if (demo) "●  DEMO" else if (connecting) "●  CONNECTING"
+            else if (identity != null && latest.odometerKm != null) "●  SDK LIVE"
             else if (identity != null) "●  SAVED" else "○  OFFLINE",
             if (connecting) Color.rgb(230, 245, 255) else Color.rgb(239, 234, 255)))
         root.addView(header)
@@ -1102,6 +1103,7 @@ class MainActivity : Activity() {
         })
         title.addView(gap(5))
         title.addView(label("음성 출력: " + ttsStatus, 12f, secondary))
+        title.addView(label("선제 대화: " + proactiveStatus, 12f, secondary))
         contentHost.addView(title)
 
         val scroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false }
@@ -1252,8 +1254,6 @@ class MainActivity : Activity() {
             ?: if (firstConnection) proactiveEngine.greeting(state, now) else null)
             ?: return
         lastProactiveText = event.text
-        proactiveStatus = if (ttsReady) "이벤트 " + event.kind + " · 음성 출력 요청"
-            else "이벤트 " + event.kind + " · 텍스트 출력됨 (TTS 미준비)"
         diagnosticLogs.add("PROACTIVE_" + event.kind.uppercase(Locale.ROOT))
         if (diagnosticLogs.size > 80) diagnosticLogs.removeAt(0)
         messages.add("VPE" to event.text)
@@ -1262,7 +1262,52 @@ class MainActivity : Activity() {
             liveMessages?.let { appendBubble(it, "VPE", event.text) }
             liveChatScroll?.post { liveChatScroll?.fullScroll(View.FOCUS_DOWN) }
         }
-        speakVehicleText(event.text)
+        val currentVehicle = identity
+        if (!hasSession() || currentVehicle == null) {
+            proactiveStatus = "차량 이벤트 " + event.kind + " → 기본 대사 출력" +
+                if (ttsReady) " · TTS 요청" else " · 음성 엔진 미준비"
+            speakVehicleText(event.text)
+            return
+        }
+        val token = sessionToken()
+        val scope = activeChatScope
+        val key = currentVehicle.vehicleKey
+        val context = aiContext(state)
+        val server = serverUrl()
+        val vehicleName = storedVehicleName()
+        val original = event.text
+        proactiveStatus = "차량 이벤트 " + event.kind + " → GPT 능동 대화 생성 중"
+        // Network request is never executed on the Automotive UI thread.
+        Thread {
+            val generated = runCatching {
+                VpeAiClient.proactiveAccount(
+                    server, token, key, vehicleName, event.kind, context)
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed || activeChatScope != scope ||
+                    identity?.vehicleKey != key) return@runOnUiThread
+                generated.onSuccess { answer ->
+                    val position = messages.indexOfLast { it.first == "VPE" && it.second == original }
+                    if (position >= 0) messages[position] = "VPE" to answer
+                    else messages.add("VPE" to answer)
+                    if (lastProactiveText == original) lastProactiveText = answer
+                    proactiveStatus = "차량 이벤트 " + event.kind + " → GPT 응답 성공" +
+                        if (ttsReady) " · TTS 요청" else " · 음성 엔진 미준비"
+                    diagnosticLogs.add("PROACTIVE_GPT_OK: " + event.kind)
+                    saveMessages()
+                    if (currentTab == "chat" || currentTab == "home") render(currentTab)
+                    speakVehicleText(answer)
+                }.onFailure { error ->
+                    proactiveStatus = "차량 이벤트 " + event.kind +
+                        " → GPT 연결 실패, 기본 대사 유지"
+                    diagnosticLogs.add("PROACTIVE_GPT_ERROR: " +
+                        (error.message ?: error.javaClass.simpleName).take(100))
+                    if (currentTab == "home") render("home")
+                    speakVehicleText(original)
+                }
+                if (diagnosticLogs.size > 80) diagnosticLogs.removeAt(0)
+            }
+        }.start()
     }
 
     /** Send the observed/derived HPE state, never the VIN or raw vehicle key. */
