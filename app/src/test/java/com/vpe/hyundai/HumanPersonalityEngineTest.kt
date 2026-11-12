@@ -117,11 +117,23 @@ class HumanPersonalityEngineTest {
         val high = HumanPersonalityEngine.makeCore(input.copy(
             interactionRatio=1.0,explorationRatio=1.0,regularityRatio=1.0))
         for (axis in listOf(0,1,3)) assertTrue(high.axes[axis] > low.axes[axis])
-        assertEquals(low.axes[2],high.axes[2],0.0)
+        assertTrue(low.axes[2] > high.axes[2]) // more conversations -> F-first style
         assertTrue(high.traits[0] > low.traits[0])
         assertTrue(high.traits[1] > low.traits[1])
         assertTrue(high.traits[2] > low.traits[2])
         assertTrue(high.traits.all { it in 0.0..1.0 })
+    }
+
+    @Test fun tOrFStyleIsNotLockedToVehicleHashOncePatternsAreObserved() {
+        val input=HpeSignals("vehicle:tf-test",odometerKm=120000.0)
+        val emotional=HumanPersonalityEngine.makeCore(input.copy(
+            cruiseUseRatio=0.0,interactionRatio=1.0,modeVarietyRatio=1.0))
+        val analytical=HumanPersonalityEngine.makeCore(input.copy(
+            cruiseUseRatio=1.0,interactionRatio=0.0,modeVarietyRatio=0.0))
+        assertTrue(emotional.axes[2] < .5)
+        assertTrue(analytical.axes[2] > .5)
+        assertTrue(analytical.axes[2]-emotional.axes[2] > .3)
+        assertTrue(emotional.traits[2] > analytical.traits[2]) // warmth
     }
 
     @Test fun memoryDoesNotConfuseOldOdometerWithJointExperience() {
@@ -147,7 +159,7 @@ class HumanPersonalityEngineTest {
             base.copy(modeVarietyRatio = 1.0, cruiseUseRatio = 1.0))
         assertTrue(variedMode.axes[1] > constantMode.axes[1])
         assertTrue(variedMode.axes[3] > constantMode.axes[3])
-        assertEquals(constantMode.axes[2], variedMode.axes[2], 0.0)
+        assertTrue(variedMode.axes[2] > constantMode.axes[2]) // high cruise use -> T
         assertTrue(variedMode.confidence > HumanPersonalityEngine.makeCore(base).confidence)
     }
 

@@ -99,6 +99,11 @@ object HumanPersonalityEngine {
     const val REGULARITY_TO_J = .32
     const val MODE_VARIETY_TO_N = .42
     const val CRUISE_USAGE_TO_J = .36
+    // Fictional decision-style mapping: structured cruise behaviour favours T,
+    // high interaction favours F; unobserved inputs never receive invented values.
+    const val CRUISE_TO_T = .44
+    const val INTERACTION_TO_F = .26
+    const val MODE_VARIETY_TO_F = .12
     const val EXPERIENCE_LOG_REFERENCE_KM = 50_000.0
     const val EXPERIENCE_LOG_CAP_KM = 1_000_000.0
     const val MODEL_AGE_SCALE_YEARS = 25.0
@@ -138,7 +143,10 @@ object HumanPersonalityEngine {
             clamp(base("E") + (social?.let { SOCIAL_TO_E * (it - .5) } ?: 0.0)),
             clamp(base("N") + (explore?.let { EXPLORATION_TO_N * (it - .5) } ?: 0.0) +
                 (modeVariety?.let { MODE_VARIETY_TO_N * (it - .5) } ?: 0.0)),
-            clamp(base("T")),
+            clamp(base("T") +
+                (cruiseUse?.let { CRUISE_TO_T * (it - .5) } ?: 0.0) -
+                (social?.let { INTERACTION_TO_F * (it - .5) } ?: 0.0) -
+                (modeVariety?.let { MODE_VARIETY_TO_F * (it - .5) } ?: 0.0)),
             clamp(base("J") + (regular?.let { REGULARITY_TO_J * (it - .5) } ?: 0.0) +
                 (cruiseUse?.let { CRUISE_USAGE_TO_J * (it - .5) } ?: 0.0))
         )
@@ -152,8 +160,8 @@ object HumanPersonalityEngine {
             clamp(.18 + .55 * (1.0 - j) + .18 * e),
             clamp(.20 + .60 * e + .10 * n)
         )
-        // Four MBTI axes: only E/N/J have directly relevant optional
-        // behavioural evidence. T/F remains an explicit seeded style axis.
+        // E/N/T/J all have available engineering style mappings from observed
+        // patterns, although none is a scientifically validated personality test.
         val evidence = listOfNotNull(s.odometerKm, explore, regular, social, modelAge,
             modeVariety, cruiseUse).size
         return HpeCore(axes, traits, clamp(evidence / 7.0))
@@ -334,7 +342,7 @@ object HumanPersonalityEngine {
             if (s.cruiseUseRatio == null) add("크루즈 사용 비율: 관측 4회 미달 또는 SDK 미수신")
             else add("크루즈 사용 비율: SDK 시간 간격별 관측 누적 · J/P 스타일 보정")
             add("장기 입력 커버리지: ${(core.confidence * 100).toInt()}% (7개 항목 기준)")
-            add("MBTI T/F: 차량 고유 시드 기반 창작 유형 · E/N/J도 미관측 항목은 초기 시드 사용")
+            add("MBTI T/F: 크루즈 사용(분석성)·실제 VPE 대화(공감성)·주행 모드 다양성(유연성) 보정, 미관측은 초기 시드")
         }
         return HpeState(s.vehicleKey,core,memory,mood,style,sources,s)
     }
