@@ -517,7 +517,7 @@ class MainActivity : Activity() {
             "에너지 " + (next.energyPercent()?.let { percent(it / 100.0) } ?: "미수신") +
                 " → 배고픔·긴장 자동 재계산"
         old.cabinTemperatureC != next.cabinTemperatureC ||
-            old.targetCabinC != next.targetCabinC ->
+            old.targetTemperatureC != next.targetTemperatureC ->
             "공조 온도 변경 → 추위·더위 자동 재계산"
         old.charging != next.charging -> "충전 스위치 변경 → 안도감 자동 재계산"
         old.odometerKm != next.odometerKm -> "주행거리 변경 → 장기 경험 조건 평가"
