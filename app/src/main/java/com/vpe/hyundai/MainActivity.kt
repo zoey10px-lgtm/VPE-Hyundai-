@@ -14,6 +14,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.speech.tts.TextToSpeech
 import android.text.InputType
 import android.text.method.HideReturnsTransformationMethod
 import android.text.method.PasswordTransformationMethod
@@ -53,6 +54,24 @@ class MainActivity : Activity() {
     private var activeChatScope: String? = null
     private var historyLoadSerial = 0
     private var pendingChats = 0
+    private val proactiveEngine = LiveProactiveEngine()
+    private var lastProactiveText: String? = null
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+    private var ttsStatus = "음성 엔진 초기화 중"
+    private var liveSdkCallback: ((String, VehicleReadings?) -> Unit)? = null
+    private var livePolling = false
+    private val pollTask = object : Runnable {
+        override fun run() {
+            if (!livePolling || isFinishing || isDestroyed) return
+            if (!demo && !connecting && environment.automotive) {
+                liveSdkCallback?.let { callback ->
+                    Thread { sdk.readVehicleData(callback) }.start()
+                }
+            }
+            mainHandler.postDelayed(this, 8_000L)
+        }
+    }
     private var lastProfileSyncAt = 0L
     private var cachedReport = false
     private var authModeRegister = false
@@ -102,6 +121,7 @@ class MainActivity : Activity() {
         activateChatScope()
         if (messages.isEmpty()) messages.add("VPE" to "안녕! 차량을 연결하면 우리만의 성격이 탄생해.")
         render("home")
+        initializeTts()
         if (hasSession()) refreshRemoteProfiles()
         // Debug-only integration test hook: launch the real SDK request without UI
         // automation, which is unavailable in some Automotive headless environments.
@@ -290,6 +310,14 @@ class MainActivity : Activity() {
             else render("diagnostics")
         })
         page.addView(hero)
+        lastProactiveText?.let { recent ->
+            val speaking = card()
+            speaking.addView(label("VPE가 먼저 전한 이야기", 13f, teal, true))
+            speaking.addView(gap(8))
+            speaking.addView(label(recent, 15f, ink))
+            page.addView(gap(12))
+            page.addView(speaking)
+        }
         page.addView(gap(12))
         page.addView(button(if (!environment.automotive) "✦  스마트폰에서 VPE 데모 시작" else "✦  시연용 데모 체험", primary = false) { loadDemo() })
         page.addView(gap(24))
@@ -793,6 +821,7 @@ class MainActivity : Activity() {
     }
 
     private fun logoutAccount() {
+        stopLivePolling()
         val oldToken = sessionToken()
         val logoutUrl = serverUrl()
         if (oldToken.isNotBlank()) {
@@ -952,6 +981,12 @@ class MainActivity : Activity() {
             title.addView(gap(7))
         }
         title.addView(button("GPT 서버 주소 설정", false) { showAiSettings() })
+        title.addView(gap(8))
+        title.addView(button("🔊 VPE 음성 테스트", false) {
+            speakVehicleText("안녕! 나는 VPE야. 이제 차량의 상태가 바뀌면 먼저 이야기할게.", showError = true)
+        })
+        title.addView(gap(5))
+        title.addView(label("음성 출력: " + ttsStatus, 12f, secondary))
         contentHost.addView(title)
 
         val scroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false }
@@ -1039,6 +1074,64 @@ class MainActivity : Activity() {
                 }
             }
             .show()
+    }
+
+    private fun initializeTts() {
+        tts = TextToSpeech(this) { status ->
+            mainHandler.post {
+                val engine = tts
+                if (status == TextToSpeech.SUCCESS && engine != null) {
+                    val language = engine.setLanguage(Locale.KOREAN)
+                    ttsReady = language != TextToSpeech.LANG_MISSING_DATA &&
+                        language != TextToSpeech.LANG_NOT_SUPPORTED
+                    ttsStatus = if (ttsReady) "한국어 TTS 준비됨" else "한국어 음성 데이터 없음"
+                } else {
+                    ttsReady = false
+                    ttsStatus = "Android TTS 엔진 없음 또는 초기화 실패"
+                }
+                diagnosticLogs.add("TTS: " + ttsStatus)
+                if (currentTab == "chat") render("chat")
+            }
+        }
+    }
+
+    private fun speakVehicleText(text: String, showError: Boolean = false) {
+        if (!ttsReady) {
+            if (showError) Toast.makeText(this, ttsStatus, Toast.LENGTH_LONG).show()
+            return
+        }
+        val rate = hpe?.expression?.voiceSpeed?.toFloat()?.coerceIn(.75f, 1.2f) ?: 1f
+        tts?.setSpeechRate(rate)
+        val status = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null,
+            "vpe-" + System.currentTimeMillis())
+        if (status != TextToSpeech.SUCCESS && showError)
+            Toast.makeText(this, "TTS 재생 요청 실패", Toast.LENGTH_LONG).show()
+    }
+
+    private fun startLivePolling() {
+        if (livePolling) return
+        livePolling = true
+        mainHandler.postDelayed(pollTask, 8_000L)
+    }
+
+    private fun stopLivePolling() {
+        livePolling = false
+        mainHandler.removeCallbacks(pollTask)
+    }
+
+    private fun proactiveOnVehicleChange() {
+        if (demo || currentTab == "auth") return
+        val state = hpe ?: return
+        val event = proactiveEngine.next(latest, state, System.currentTimeMillis()) ?: return
+        lastProactiveText = event.text
+        diagnosticLogs.add("PROACTIVE_" + event.kind.uppercase(Locale.ROOT))
+        messages.add("VPE" to event.text)
+        saveMessages()
+        if (currentTab == "chat") {
+            liveMessages?.let { appendBubble(it, "VPE", event.text) }
+            liveChatScroll?.post { liveChatScroll?.fullScroll(View.FOCUS_DOWN) }
+        }
+        speakVehicleText(event.text)
     }
 
     /** Send the observed/derived HPE state, never the VIN or raw vehicle key. */
@@ -1138,7 +1231,10 @@ class MainActivity : Activity() {
         messages.add("VPE" to text)
         saveMessages()
         if (currentTab == "chat") render("chat")
-        if (!canUseGpt || state == null || id == null) return
+        if (!canUseGpt || state == null || id == null) {
+            if (id != null && state != null) speakVehicleText(reply(message))
+            return
+        }
         pendingChats++
         val scope = activeChatScope
         val context = aiContext(state)
@@ -1155,6 +1251,7 @@ class MainActivity : Activity() {
                 pendingChats = (pendingChats - 1).coerceAtLeast(0)
                 if (!isFinishing && !isDestroyed && replyIndex < messages.size) {
                     messages[replyIndex] = "VPE" to result
+                    if (!result.startsWith("[GPT 연결 오류")) speakVehicleText(result)
                     saveMessages()
                     if (currentTab == "chat") render("chat")
                 }
@@ -1322,6 +1419,7 @@ class MainActivity : Activity() {
             render("diagnostics")
             return
         }
+        stopLivePolling()
         connecting = true
         if (demo) { identity = null; observedSnapshot = null }
         demo = false
@@ -1334,13 +1432,13 @@ class MainActivity : Activity() {
             if (connecting && serial == requestSerial) finishConnection(serial, timeout = true)
         }, 12000L)
         // SDK IPC is performed off main thread. Callbacks are always marshalled to UI thread.
-        Thread {
-            sdk.readVehicleData { log, reading ->
+        val callback: (String, VehicleReadings?) -> Unit = { log, reading ->
                 runOnUiThread {
                     if (serial != requestSerial) return@runOnUiThread
                     diagnosticLogs.add(log)
                     if (diagnosticLogs.size > 80) diagnosticLogs.removeAt(0)
                     if (reading != null) {
+                        val before = latest
                         latest = latest.copy(
                             odometerKm = reading.odometerKm ?: latest.odometerKm,
                             fuelPercent = reading.fuelPercent ?: latest.fuelPercent,
@@ -1363,7 +1461,7 @@ class MainActivity : Activity() {
                         if (connecting && latest.odometerKm != null &&
                             latest.energyPercent() != null && latest.vehicleKey != null) {
                             finishConnection(serial, timeout = false)
-                        } else if (!connecting && !demo) {
+                        } else if (!connecting && !demo && latest != before) {
                             if (latest.odometerKm != null && latest.vehicleKey != null &&
                                 identity?.vehicleKey != latest.vehicleKey) {
                                 if (buildIdentityFromSdkReadings()) {
@@ -1380,7 +1478,9 @@ class MainActivity : Activity() {
                     }
                 }
             }
-        }.start()
+        }
+        liveSdkCallback = callback
+        Thread { sdk.readVehicleData(callback) }.start()
     }
 
     private fun finishConnection(serial: Int, timeout: Boolean) {
@@ -1423,6 +1523,8 @@ class MainActivity : Activity() {
         cachedReport = false
         updateHumanPersonality()
         activateChatScope()
+        startLivePolling()
+        proactiveOnVehicleChange()
         syncCurrentVehicle(force = true)
         return true
     }
@@ -1447,6 +1549,7 @@ class MainActivity : Activity() {
             store.save(evolved)
         }
         updateHumanPersonality()
+        proactiveOnVehicleChange()
         syncCurrentVehicle()
         if (currentTab == "home" || currentTab == "diagnostics" || currentTab == "report") render(currentTab)
     }
@@ -1480,6 +1583,7 @@ class MainActivity : Activity() {
     }
 
     private fun loadDemo() {
+        stopLivePolling()
         ++requestSerial
         connecting = false
         demo = true
@@ -1559,7 +1663,10 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         ++requestSerial
+        stopLivePolling()
         mainHandler.removeCallbacksAndMessages(null)
+        tts?.stop()
+        tts?.shutdown()
         sdk.release()
         super.onDestroy()
     }
