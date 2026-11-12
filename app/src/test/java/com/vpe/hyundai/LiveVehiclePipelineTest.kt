@@ -20,6 +20,16 @@ class LiveVehiclePipelineTest {
         assertEquals("low_energy",LiveProactiveEngine().next(updated,second,10000L)?.kind)
     }
 
+    @Test fun newConsoleFieldsMergeWithoutDestroyingKnownMeasurements() {
+        val initial = VehicleReadings(odometerKm=800.0,driverOccupied=true)
+        val changed = initial.mergeObserved(VehicleReadings(
+            cruiseTargetSpeedRaw="13.8889",fanSpeedLevel=4,driverOccupied=false))
+        assertEquals(800.0,changed.odometerKm!!,0.0)
+        assertEquals(false,changed.driverOccupied)
+        assertEquals("13.8889",changed.cruiseTargetSpeedRaw)
+        assertEquals(4,changed.fanSpeedLevel)
+    }
+
     @Test fun absentFieldsDoNotEraseMeasuredValuesAndFalseIsKept() {
         val initial = VehicleReadings(odometerKm=12.0,charging=true,evBatteryLevel=40.0)
         val next = initial.mergeObserved(VehicleReadings(charging=false))

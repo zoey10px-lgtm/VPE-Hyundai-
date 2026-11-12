@@ -391,6 +391,73 @@ class PleosVehicleClient(context: Context) {
             report("CHARGE_SWITCH_ERROR: " + safeMessage(e), null)
         }
 
+        // Additional read-only inputs verified against Vehicle-2.3.2.aar method
+        // signatures. A method existing does not prove the host AVD supplies a value.
+        // Keep SDK-native units raw until measured against the Virtual Console.
+        try {
+            vehicle.getOdometer().getRangeRemainingDistance(
+                onComplete = { v -> report("RANGE_REMAINING: " + (v?.toString() ?: "EMPTY"),
+                    v?.let { VehicleReadings(rangeRemainingRaw = it.toString()) }) },
+                onFailed = { e -> report("RANGE_REMAINING_ERROR: " + safeMessage(e), null) }
+            )
+        } catch (e: Exception) {
+            report("RANGE_REMAINING_ERROR: " + safeMessage(e), null)
+        }
+        try {
+            vehicle.getEvBattery().getEvBatteryCapacity(
+                onComplete = { v -> report("EV_CAPACITY: " + (v?.toString() ?: "EMPTY"),
+                    v?.let { VehicleReadings(batteryCapacityRaw = it.toString()) }) },
+                onFailed = { e -> report("EV_CAPACITY_ERROR: " + safeMessage(e), null) }
+            )
+        } catch (e: Exception) {
+            report("EV_CAPACITY_ERROR: " + safeMessage(e), null)
+        }
+        try {
+            vehicle.getDrivingMode().getCruiseControlState(
+                onComplete = { v -> report("CRUISE_STATE: " + (v?.toString() ?: "EMPTY"),
+                    v?.let { VehicleReadings(cruiseControlState = it.toString()) }) },
+                onFailed = { e -> report("CRUISE_STATE_ERROR: " + safeMessage(e), null) }
+            )
+        } catch (e: Exception) {
+            report("CRUISE_STATE_ERROR: " + safeMessage(e), null)
+        }
+        try {
+            vehicle.getDrivingMode().getCruiseControlTargetSpeed(
+                onComplete = { v -> report("CRUISE_TARGET: " + (v?.toString() ?: "EMPTY"),
+                    v?.let { VehicleReadings(cruiseTargetSpeedRaw = it.toString()) }) },
+                onFailed = { e -> report("CRUISE_TARGET_ERROR: " + safeMessage(e), null) }
+            )
+        } catch (e: Exception) {
+            report("CRUISE_TARGET_ERROR: " + safeMessage(e), null)
+        }
+        try {
+            vehicle.getHVAC().getHvacFanSpeed(driverSeat,
+                onComplete = { v -> report("FAN_SPEED: " + (v?.toString() ?: "EMPTY"),
+                    v?.let { VehicleReadings(fanSpeedLevel = it) }) },
+                onFailed = { e -> report("FAN_SPEED_ERROR: " + safeMessage(e), null) }
+            )
+        } catch (e: Exception) {
+            report("FAN_SPEED_ERROR: " + safeMessage(e), null)
+        }
+        try {
+            vehicle.getSeat().getCurrentSeatOccupancy(driverSeat,
+                onComplete = { v -> report("SEAT_OCCUPANCY: " + (v?.toString() ?: "EMPTY"),
+                    v?.let { VehicleReadings(driverOccupied = it) }) },
+                onFailed = { e -> report("SEAT_OCCUPANCY_ERROR: " + safeMessage(e), null) }
+            )
+        } catch (e: Exception) {
+            report("SEAT_OCCUPANCY_ERROR: " + safeMessage(e), null)
+        }
+        try {
+            vehicle.getLight().getAmbientLightBrightness(driverSeat,
+                onComplete = { v -> report("AMBIENT_BRIGHTNESS: " + (v?.toString() ?: "EMPTY"),
+                    v?.let { VehicleReadings(ambientBrightness = it) }) },
+                onFailed = { e -> report("AMBIENT_BRIGHTNESS_ERROR: " + safeMessage(e), null) }
+            )
+        } catch (e: Exception) {
+            report("AMBIENT_BRIGHTNESS_ERROR: " + safeMessage(e), null)
+        }
+
         // VIN is preferred. If unavailable, try the SDK's verified CRN getter.
         // Neither raw identifier is written to logs or storage.
         fun readCRNFallback() {

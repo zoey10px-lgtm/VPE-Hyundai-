@@ -18,7 +18,15 @@ data class VehicleReadings(
     val drivingMode: String? = null,
     val washerFluidWarning: Boolean? = null,
     val engineOilState: String? = null,
-    val brakeFluidState: String? = null
+    val brakeFluidState: String? = null,
+    // Confirmed methods in the actual SDK AAR; raw units must be checked on Pleos AVD.
+    val rangeRemainingRaw: String? = null,
+    val batteryCapacityRaw: String? = null,
+    val cruiseControlState: String? = null,
+    val cruiseTargetSpeedRaw: String? = null,
+    val fanSpeedLevel: Int? = null,
+    val driverOccupied: Boolean? = null,
+    val ambientBrightness: Int? = null
 ) {
     fun hasMeasuredDrivingData(): Boolean = odometerKm != null
     fun energyPercent(): Double? = fuelPercent ?: evBatteryLevel
@@ -40,7 +48,14 @@ data class VehicleReadings(
         drivingMode = n.drivingMode ?: drivingMode,
         washerFluidWarning = n.washerFluidWarning ?: washerFluidWarning,
         engineOilState = n.engineOilState ?: engineOilState,
-        brakeFluidState = n.brakeFluidState ?: brakeFluidState
+        brakeFluidState = n.brakeFluidState ?: brakeFluidState,
+        rangeRemainingRaw = n.rangeRemainingRaw ?: rangeRemainingRaw,
+        batteryCapacityRaw = n.batteryCapacityRaw ?: batteryCapacityRaw,
+        cruiseControlState = n.cruiseControlState ?: cruiseControlState,
+        cruiseTargetSpeedRaw = n.cruiseTargetSpeedRaw ?: cruiseTargetSpeedRaw,
+        fanSpeedLevel = n.fanSpeedLevel ?: fanSpeedLevel,
+        driverOccupied = n.driverOccupied ?: driverOccupied,
+        ambientBrightness = n.ambientBrightness ?: ambientBrightness
     )
 }
 
