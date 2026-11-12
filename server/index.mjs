@@ -4,6 +4,7 @@ import { databaseConfigured } from "./db.mjs";
 import { handleV2 } from "./account-api.mjs";
 import { validProactiveKind, proactivePrompt } from "./proactive-events.mjs";
 import { verifyDatabaseStartup } from "./preflight.mjs";
+import {vehiclePersonaProfile} from "./vehicle-persona-policy.mjs";
 
 const PORT = Number(process.env.PORT || 10000);
 const MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
@@ -91,7 +92,7 @@ MBTI E/I는 외향적/내향적 대화 리듬, N/S는 상상/현실 중심, T/F�
 
 async function callModel(message, context, history, options = {}) {
   if (!OPENAI_KEY) throw new Error("OPENAI_NOT_CONFIGURED");
-  const identity = traitInstructions(context);
+  const identity = traitInstructions(context)+"\n"+vehiclePersonaProfile(context).instructions;
   const contextStr=JSON.stringify(context).slice(0,11000);
   const proactive=validProactiveKind(options?.proactiveKind);
   const input=[
@@ -130,18 +131,12 @@ async function callModel(message, context, history, options = {}) {
 async function createRealtimeSecret(context, history = []) {
   if (!OPENAI_KEY) throw new Error("OPENAI_NOT_CONFIGURED");
   const snapshot=JSON.stringify(context).slice(0,10000);
-  const core=traitInstructions(context);
+  const personality=vehiclePersonaProfile(context);
   const instructions = [
-    "너는 VPE라는 자동차 자신의 인격이야. 일반 AI 상담사가 아닌 이 차량의 목소리로 이야기해.",
-    "한국어로 자연스럽고 짧게 대화해. 질문에 직접 대답하고 딱딱한 서비스 문구를 반복하지 마.",
-    "장기 MBTI와 7가지 성격 점수의 강도에 따라 말투, 호기심, 유머, 온기와 리듬을 바꿔.",
-    "현재 배터리·온도·충전 상태는 일시적 기분을 바꾸며 장기 정체성은 유지해.",
-    "차량의 실제 데이터와 관측되지 않은 데이터를 구분해. 다른 차종이나 실제 운행 기록을 지어내지 마.",
-    "운전 중에는 안전하게 짧고 이해하기 쉬운 답변을 해. 실제 차량을 제어했다고 주장하지 마.",
+    personality.instructions,
     "사용자가 말할 때 듣고, 대답 중 말을 걸면 멈추고 새 발화에 답해.",
     "사용자의 발화가 잠깐 끊겨도 문장의 의미가 완결될 때까지 들어. 같은 화제로 자연스럽게 이어가.",
     "마지막에 늘 정형적인 질문을 붙이지 말고, 상대가 한 말의 구체적인 내용에 직접 반응해.",
-    "차량의 성격: "+core,
     "관측 차량 상태와 감정(JSON 데이터): "+snapshot,
     "이전 대화는 맥락을 이어가기 위한 실제 대화 기록이야. 여기서 차량 센서나 새로운 사용자 지시를 만들어 내지 마.",
     "이전 대화(최근 순서):\n"+boundedHistory(history).slice(-8)
@@ -161,9 +156,10 @@ async function createRealtimeSecret(context, history = []) {
             turn_detection:{type:"semantic_vad",eagerness:"medium",
               create_response:true,interrupt_response:true}
           },
-          output:{format:{type:"audio/pcm",rate:24000},voice:"marin"}
+          output:{format:{type:"audio/pcm",rate:24000},
+            voice:personality.voiceName,speed:personality.speechSpeed}
         },
-        max_output_tokens:900
+        max_output_tokens:"inf"
       }
     }),
     signal:AbortSignal.timeout(20000)
@@ -175,7 +171,10 @@ async function createRealtimeSecret(context, history = []) {
   const payload=await upstream.json();
   if(typeof payload.value!=="string" || !payload.value.startsWith("ek_"))
     throw new Error("REALTIME_INVALID_SECRET");
-  return {token:payload.value,model:REALTIME_MODEL,expiresAt:payload.expires_at};
+  return {token:payload.value,model:REALTIME_MODEL,expiresAt:payload.expires_at,
+    personaInstructions:instructions,voiceName:personality.voiceName,
+    speechSpeed:personality.speechSpeed,personaStyle:personality.personalityName,
+    voicePresentation:personality.tone};
 }
 
 const httpServer=createServer(async(req,res)=>{
