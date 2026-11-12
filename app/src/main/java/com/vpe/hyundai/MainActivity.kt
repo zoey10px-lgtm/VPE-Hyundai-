@@ -1385,8 +1385,17 @@ class MainActivity : Activity() {
         val token = sessionToken()
         val endpoint = serverUrl()
         val vehicleKey = id.vehicleKey
+        val recent = JSONArray()
+        messages.takeLast(10).forEach { (who, words) ->
+            if (words.isNotBlank() && !words.contains("답변을 만들고 있어요"))
+                recent.put(JSONObject()
+                    .put("role", if (who == "나") "user" else "assistant")
+                    .put("content", words.take(550)))
+        }
         Thread {
-            val secret = runCatching { VpeAiClient.realtimeSecret(endpoint, token, context) }
+            val secret = runCatching {
+                VpeAiClient.realtimeSecret(endpoint, token, context, recent)
+            }
             runOnUiThread {
                 if (!voiceActive || identity?.vehicleKey != vehicleKey || isDestroyed) return@runOnUiThread
                 secret.onSuccess { credential ->

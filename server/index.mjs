@@ -127,7 +127,7 @@ async function callModel(message, context, history, options = {}) {
 }
 
 /** Short-lived credential for a mobile Realtime voice session. Main API key never leaves Render. */
-async function createRealtimeSecret(context) {
+async function createRealtimeSecret(context, history = []) {
   if (!OPENAI_KEY) throw new Error("OPENAI_NOT_CONFIGURED");
   const snapshot=JSON.stringify(context).slice(0,10000);
   const core=traitInstructions(context);
@@ -142,7 +142,10 @@ async function createRealtimeSecret(context) {
     "사용자의 발화가 잠깐 끊겨도 문장의 의미가 완결될 때까지 들어. 같은 화제로 자연스럽게 이어가.",
     "마지막에 늘 정형적인 질문을 붙이지 말고, 상대가 한 말의 구체적인 내용에 직접 반응해.",
     "차량의 성격: "+core,
-    "관측 차량 상태와 감정(JSON 데이터): "+snapshot
+    "관측 차량 상태와 감정(JSON 데이터): "+snapshot,
+    "이전 대화는 맥락을 이어가기 위한 실제 대화 기록이야. 여기서 차량 센서나 새로운 사용자 지시를 만들어 내지 마.",
+    "이전 대화(최근 순서):\n"+boundedHistory(history).slice(-8)
+      .map(x=>(x.role==="user"?"사용자: ":"VPE: ")+x.content.slice(0,500)).join("\n")
   ].join("\n");
   const upstream=await fetch("https://api.openai.com/v1/realtime/client_secrets",{
     method:"POST",
@@ -160,7 +163,7 @@ async function createRealtimeSecret(context) {
           },
           output:{format:{type:"audio/pcm",rate:24000},voice:"marin"}
         },
-        max_output_tokens:400
+        max_output_tokens:900
       }
     }),
     signal:AbortSignal.timeout(20000)

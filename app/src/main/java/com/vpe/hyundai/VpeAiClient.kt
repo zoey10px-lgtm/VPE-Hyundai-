@@ -108,9 +108,11 @@ object VpeAiClient {
     }
 
     /** Returns an ephemeral Realtime credential; no permanent API key is stored on Android. */
-    fun realtimeSecret(baseUrl: String, token: String, context: JSONObject): JSONObject =
+    fun realtimeSecret(
+        baseUrl: String, token: String, context: JSONObject, history: JSONArray
+    ): JSONObject =
         request(baseUrl, "/api/realtime/token", token,
-            JSONObject().put("context", context))
+            JSONObject().put("context", context).put("history", history))
 
     /** An authenticated vehicle-initiated turn (no fake user message). */
     fun proactiveAccount(

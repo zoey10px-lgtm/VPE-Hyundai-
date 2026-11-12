@@ -111,7 +111,8 @@ export async function handleV2(req,res,url,body,callModel,createRealtimeSecret) 
       return json(res,400,{error:"INVALID_VOICE_CONTEXT"});
     if(typeof createRealtimeSecret!=="function")
       return json(res,503,{error:"REALTIME_NOT_CONFIGURED"});
-    return json(res,200,await createRealtimeSecret(body.context));
+    return json(res,200,await createRealtimeSecret(body.context,
+      Array.isArray(body.history) ? body.history : []));
   }
   if(req.method==="POST" && path==="/api/auth/logout") {
     const token=req.headers.authorization.slice(7);
