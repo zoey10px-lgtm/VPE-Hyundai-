@@ -27,6 +27,16 @@ export function vehiclePersonaProfile(context) {
   const cold=numeric(context.affect?.cold,0);
   const hunger=numeric(context.affect?.hunger,0);
   const voice=context.voice||{};
+  const rawPitch=typeof voice.pitch==="number"&&Number.isFinite(voice.pitch)?voice.pitch:1;
+  const perceivedPitch=clamp(rawPitch,.7,1.3);
+  const resonance=numeric(voice.resonance,.5);
+  const softness=numeric(voice.softness,warmth);
+  const voiceDepth=perceivedPitch<.94?"평소보다 낮고 차분한 음역":
+    perceivedPitch>1.09?"평소보다 살짝 밝고 높은 음역":"편안한 중간 음역";
+  const vocalTexture=resonance>.64?"선명하고 힘 있는 공명":
+    resonance<.37?"작고 부드러운 공명":"자연스러운 공명";
+  const vocalSoftness=softness>.66?"부드럽고 섬세한 말끝":
+    softness<.34?"단정하고 또렷한 말끝":"편안한 말끝";
   const feminine=context.voicePresentation==="여성형" ||
     (context.voicePresentation!=="남성형" && numeric(voice.genderExpression)>=.5);
   const energy=clamp(.33*e+.30*activity+.25*expressive+.12*confidence-.16*tension);
@@ -73,7 +83,10 @@ export function vehiclePersonaProfile(context) {
     "말하는 목소리 — "+voiceRule,
     "신중함="+percent(caution)+"%: 높을수록 확신 없을 때 천천히 확인하고, 낮을수록 가볍게 받아쳐.",
     "친밀감="+percent(warmth)+"%, 감정 반응="+percent(affection)+"%, 분석성="+percent(analytical)+"%, 망설임="+percent(hesitance)+"%. 이 강도에 맞춰 억양·배려·문장 길이를 달리해.",
-    "목소리 표현 설정 "+tone+" · 기본 음색 "+voiceName+" · 발화 속도 배율 "+speechSpeed+".",
+    "목소리 표현 설정 "+tone+" · 기본 음색 "+voiceName+" · 발화 속도 배율 "+speechSpeed+
+      " · 발성 "+voiceDepth+" · "+vocalTexture+" · "+vocalSoftness+".",
+    "같은 문장을 읽더라도 자신감 낮은 성격은 조심스러운 숨 고르기·약한 강세, 자신감 높은 성격은 또렷한 강세·확실한 마무리. " +
+      "활동성 높은 성격은 경쾌한 연결·빠른 호흡, 낮은 성격은 느긋한 리듬을 일관되게 유지해.",
     "말투 추가 규칙 — "+creativity+" "+planning+" "+humor,
     "성격에 따라 같은 '나 오늘 기분 안 좋아' 질문에 반드시 반응 방식부터 달라져야 해. T 강한 차는 원인/해결 먼저, F 강한 차는 감정 수용 먼저. 답은 자연스러운 한두 문장으로.",
     "정형적인 '무엇을 도와드릴까요', '언제든 말씀해 주세요', '저는 AI라서' 같은 고객센터 문구를 피하고 상대 말에 직접 반응해.",
