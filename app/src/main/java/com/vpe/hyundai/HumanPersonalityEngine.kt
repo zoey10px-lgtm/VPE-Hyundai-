@@ -4,6 +4,7 @@ import java.security.MessageDigest
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.ln
 
 /**
  * HPE 1.0: six distinct computational stages.
@@ -25,7 +26,9 @@ data class HpeSignals(
     val explorationRatio: Double? = null,
     val regularityRatio: Double? = null,
     val interactionRatio: Double? = null,
-    val modelAgeYears: Double? = null
+    val modelAgeYears: Double? = null,
+    val modeVarietyRatio: Double? = null,
+    val cruiseUseRatio: Double? = null
 )
 
 data class HpeCore(
@@ -49,6 +52,8 @@ data class HpeMemory(
     val lastExploration: Double? = null,
     val lastRegularity: Double? = null,
     val lastInteraction: Double? = null,
+    val lastModeVariety: Double? = null,
+    val lastCruiseUsage: Double? = null,
     val highlights: List<String> = emptyList()
 )
 
@@ -86,13 +91,16 @@ data class HpeState(
 )
 
 object HumanPersonalityEngine {
-    const val VERSION = 3
+    const val VERSION = 4
     // Engineering priors; not coefficients fitted to psychometric or vehicle data.
     const val BASE_SEED_SPREAD = .20
     const val SOCIAL_TO_E = .28
     const val EXPLORATION_TO_N = .36
     const val REGULARITY_TO_J = .32
-    const val EXPERIENCE_SCALE_KM = 250_000.0
+    const val MODE_VARIETY_TO_N = .42
+    const val CRUISE_USAGE_TO_J = .36
+    const val EXPERIENCE_LOG_REFERENCE_KM = 50_000.0
+    const val EXPERIENCE_LOG_CAP_KM = 1_000_000.0
     const val MODEL_AGE_SCALE_YEARS = 25.0
     const val FIRST_EVIDENCE_ADAPTATION = .35
     const val MEANINGFUL_PATTERN_ADAPTATION = .12
@@ -112,8 +120,12 @@ object HumanPersonalityEngine {
         val explore = ratio(s.explorationRatio)
         val regular = ratio(s.regularityRatio)
         val social = ratio(s.interactionRatio)
+        val modeVariety = ratio(s.modeVarietyRatio)
+        val cruiseUse = ratio(s.cruiseUseRatio)
+        // Avoid saturating all older/high-mileage vehicles above 250,000km.
         val experience = s.odometerKm?.takeIf { it.isFinite() && it >= 0.0 }
-            ?.let { clamp(it / EXPERIENCE_SCALE_KM) }
+            ?.let { clamp(ln(1.0 + it / EXPERIENCE_LOG_REFERENCE_KM) /
+                ln(1.0 + EXPERIENCE_LOG_CAP_KM / EXPERIENCE_LOG_REFERENCE_KM)) }
         val modelAge = s.modelAgeYears?.takeIf { it.isFinite() && it in 0.0..60.0 }
             ?.let { clamp(it / MODEL_AGE_SCALE_YEARS) }
         val seasoning = when {
@@ -124,9 +136,11 @@ object HumanPersonalityEngine {
         fun base(name: String) = .5 + BASE_SEED_SPREAD * (unitSeed(s.vehicleKey, name) - .5)
         val axes = listOf(
             clamp(base("E") + (social?.let { SOCIAL_TO_E * (it - .5) } ?: 0.0)),
-            clamp(base("N") + (explore?.let { EXPLORATION_TO_N * (it - .5) } ?: 0.0)),
+            clamp(base("N") + (explore?.let { EXPLORATION_TO_N * (it - .5) } ?: 0.0) +
+                (modeVariety?.let { MODE_VARIETY_TO_N * (it - .5) } ?: 0.0)),
             clamp(base("T")),
-            clamp(base("J") + (regular?.let { REGULARITY_TO_J * (it - .5) } ?: 0.0))
+            clamp(base("J") + (regular?.let { REGULARITY_TO_J * (it - .5) } ?: 0.0) +
+                (cruiseUse?.let { CRUISE_USAGE_TO_J * (it - .5) } ?: 0.0))
         )
         val e = axes[0]; val n = axes[1]; val t = axes[2]; val j = axes[3]
         val traits = listOf(
@@ -140,8 +154,9 @@ object HumanPersonalityEngine {
         )
         // Four MBTI axes: only E/N/J have directly relevant optional
         // behavioural evidence. T/F remains an explicit seeded style axis.
-        val evidence = listOfNotNull(s.odometerKm, explore, regular, social, modelAge).size
-        return HpeCore(axes, traits, clamp(evidence / 5.0))
+        val evidence = listOfNotNull(s.odometerKm, explore, regular, social, modelAge,
+            modeVariety, cruiseUse).size
+        return HpeCore(axes, traits, clamp(evidence / 7.0))
     }
 
     /** Sensor polls are not experience events. Keep first and last readings. */
@@ -155,13 +170,19 @@ object HumanPersonalityEngine {
         val explore = ratio(s.explorationRatio)
         val regular = ratio(s.regularityRatio)
         val social = ratio(s.interactionRatio)
+        val modeVariety = ratio(s.modeVarietyRatio)
+        val cruiseUsage = ratio(s.cruiseUseRatio)
         val changed = delta >= 100.0 ||
             (previous != null && explore != null && (old.lastExploration == null ||
                 abs(explore-old.lastExploration) >= .05)) ||
             (previous != null && regular != null && (old.lastRegularity == null ||
                 abs(regular-old.lastRegularity) >= .05)) ||
             (previous != null && social != null && (old.lastInteraction == null ||
-                abs(social-old.lastInteraction) >= .05))
+                abs(social-old.lastInteraction) >= .05)) ||
+            (previous != null && modeVariety != null && (old.lastModeVariety == null ||
+                abs(modeVariety-old.lastModeVariety) >= .05)) ||
+            (previous != null && cruiseUsage != null && (old.lastCruiseUsage == null ||
+                abs(cruiseUsage-old.lastCruiseUsage) >= .05))
         val notes = if (changed && delta >= 100.0)
             (old.highlights + ("함께 달린 거리 +" + delta.toInt() + "km")).takeLast(12)
         else old.highlights
@@ -176,6 +197,8 @@ object HumanPersonalityEngine {
             lastExploration = explore ?: old.lastExploration,
             lastRegularity = regular ?: old.lastRegularity,
             lastInteraction = social ?: old.lastInteraction,
+            lastModeVariety = modeVariety ?: old.lastModeVariety,
+            lastCruiseUsage = cruiseUsage ?: old.lastCruiseUsage,
             highlights = notes
         )
     }
@@ -263,7 +286,9 @@ object HumanPersonalityEngine {
             (old.lastSignals.regularityRatio == null && ratio(s.regularityRatio) != null) ||
             (old.lastSignals.interactionRatio == null && ratio(s.interactionRatio) != null) ||
             (old.lastSignals.modelAgeYears == null && s.modelAgeYears != null) ||
-            (old.lastSignals.odometerKm == null && s.odometerKm != null))
+            (old.lastSignals.odometerKm == null && s.odometerKm != null) ||
+            (old.lastSignals.modeVarietyRatio == null && ratio(s.modeVarietyRatio) != null) ||
+            (old.lastSignals.cruiseUseRatio == null && ratio(s.cruiseUseRatio) != null))
         val meaningful = old != null && memory.meaningfulEvents > old.memory.meaningfulEvents
         val candidate = makeCore(s)
         val weight = when {
@@ -271,7 +296,9 @@ object HumanPersonalityEngine {
             gainedEvidence -> FIRST_EVIDENCE_ADAPTATION
             meaningful && (s.explorationRatio != old.lastSignals.explorationRatio ||
                 s.regularityRatio != old.lastSignals.regularityRatio ||
-                s.interactionRatio != old.lastSignals.interactionRatio) ->
+                s.interactionRatio != old.lastSignals.interactionRatio ||
+                s.modeVarietyRatio != old.lastSignals.modeVarietyRatio ||
+                s.cruiseUseRatio != old.lastSignals.cruiseUseRatio) ->
                 MEANINGFUL_PATTERN_ADAPTATION
             meaningful -> MILEAGE_EVENT_ADAPTATION
             else -> 0.0
@@ -300,10 +327,14 @@ object HumanPersonalityEngine {
             else add("신규 방문 비율: 장기 패턴 집계 입력")
             if (s.regularityRatio == null) add("운행 규칙성: 미연결")
             else add("운행 규칙성: 장기 패턴 집계 입력")
-            if (s.interactionRatio == null) add("대화 빈도: 미연결")
-            else add("대화 빈도: 장기 패턴 집계 입력")
-            add("장기 입력 커버리지: ${(core.confidence * 100).toInt()}% (5개 항목 기준)")
-            add("MBTI T/F: 차량 고유 시드 기반 창작 유형")
+            if (s.interactionRatio == null) add("VPE 실제 대화 횟수 집계: 아직 최소 3회 미달")
+            else add("VPE 대화 빈도: 실제 대화 누적 집계 입력")
+            if (s.modeVarietyRatio == null) add("운전 모드 다양성: 관측 4회 미달 또는 SDK 미수신")
+            else add("운전 모드 다양성: SDK 시간 간격별 관측 누적 · N/S 스타일 보정")
+            if (s.cruiseUseRatio == null) add("크루즈 사용 비율: 관측 4회 미달 또는 SDK 미수신")
+            else add("크루즈 사용 비율: SDK 시간 간격별 관측 누적 · J/P 스타일 보정")
+            add("장기 입력 커버리지: ${(core.confidence * 100).toInt()}% (7개 항목 기준)")
+            add("MBTI T/F: 차량 고유 시드 기반 창작 유형 · E/N/J도 미관측 항목은 초기 시드 사용")
         }
         return HpeState(s.vehicleKey,core,memory,mood,style,sources,s)
     }
