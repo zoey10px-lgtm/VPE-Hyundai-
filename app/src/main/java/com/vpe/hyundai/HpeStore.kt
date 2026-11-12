@@ -37,13 +37,15 @@ class HpeStore(context: Context) {
             .put("charging", s.charging)
             .put("parked", s.parked)
             .put("warning", s.safetyWarning)
-        prefs.edit().putString("state", json.toString()).apply()
+        prefs.edit().putString("state_" + state.key, json.toString()).apply()
     }
 
     fun load(key: String): HpeState? {
         return try {
-        val json = JSONObject(prefs.getString("state",null) ?: return null)
-        if (json.optInt("version") != HumanPersonalityEngine.VERSION ||
+        val raw = prefs.getString("state_" + key, null)
+            ?: prefs.getString("state", null) ?: return null
+        val json = JSONObject(raw)
+        if (json.optInt("version") !in 2..HumanPersonalityEngine.VERSION ||
             json.optString("key") != key) return null
         fun num(name: String) = if (json.isNull(name)) null else json.optDouble(name).takeIf { it.isFinite() }
         fun boolean(name: String): Boolean? = if (json.isNull(name)) null else json.optBoolean(name)
@@ -71,6 +73,6 @@ class HpeStore(context: Context) {
             HumanPersonalityEngine.express(core,affect,s), emptyList(),s)
         } catch (_: Exception) { null }
     }
-    fun clear() { prefs.edit().remove("state").apply() }
+    fun clear() { prefs.edit().clear().apply() }
 
 }

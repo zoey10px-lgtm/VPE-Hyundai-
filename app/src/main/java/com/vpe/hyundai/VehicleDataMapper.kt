@@ -22,6 +22,26 @@ data class VehicleReadings(
 ) {
     fun hasMeasuredDrivingData(): Boolean = odometerKm != null
     fun energyPercent(): Double? = fuelPercent ?: evBatteryLevel
+    /** A callback may contain only one field; null means no new reading. */
+    fun mergeObserved(n: VehicleReadings): VehicleReadings = copy(
+        odometerKm = n.odometerKm ?: odometerKm,
+        fuelPercent = n.fuelPercent ?: fuelPercent,
+        modelYear = n.modelYear ?: modelYear,
+        evBatteryLevel = n.evBatteryLevel ?: evBatteryLevel,
+        vehicleKey = n.vehicleKey ?: vehicleKey,
+        cabinTemperatureC = n.cabinTemperatureC ?: cabinTemperatureC,
+        targetTemperatureC = n.targetTemperatureC ?: targetTemperatureC,
+        hvacOn = n.hvacOn ?: hvacOn,
+        charging = n.charging ?: charging,
+        parked = n.parked ?: parked,
+        safetyWarning = n.safetyWarning ?: safetyWarning,
+        tripDistanceRaw = n.tripDistanceRaw ?: tripDistanceRaw,
+        tripTimeRaw = n.tripTimeRaw ?: tripTimeRaw,
+        drivingMode = n.drivingMode ?: drivingMode,
+        washerFluidWarning = n.washerFluidWarning ?: washerFluidWarning,
+        engineOilState = n.engineOilState ?: engineOilState,
+        brakeFluidState = n.brakeFluidState ?: brakeFluidState
+    )
 }
 
 /**

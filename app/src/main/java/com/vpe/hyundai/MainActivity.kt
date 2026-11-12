@@ -84,6 +84,7 @@ class MainActivity : Activity() {
     private fun hasSession() = accountName().isNotBlank() && sessionToken().isNotBlank()
     private fun serverUrl() = getSharedPreferences("vpe_ai", MODE_PRIVATE)
         .getString("render_url", defaultAiServerUrl).orEmpty()
+    private var liveMoodStatus: TextView? = null
     private var liveMessages: LinearLayout? = null
     private var liveChatScroll: ScrollView? = null
     private val diagnosticLogs = mutableListOf<String>()
@@ -195,6 +196,7 @@ class MainActivity : Activity() {
         currentTab = tab
         liveMessages = null
         liveChatScroll = null
+        liveMoodStatus = null
         root = column().apply { setBackgroundColor(cream) }
         val header = row().apply { setPadding(d(24), d(15), d(24), d(12)) }
         val logo = label("vpe.", 29f, violet, true)
@@ -969,6 +971,9 @@ class MainActivity : Activity() {
         title.addView(label("VPE와 대화", 25f, ink, true))
         title.addView(gap(4))
         title.addView(label("내 차의 성격과 오늘의 상태를 알아보세요", 13f, secondary))
+        liveMoodStatus = label(liveMoodSummary(), 13f, teal, true)
+        title.addView(gap(5))
+        title.addView(liveMoodStatus!!)
         title.addView(gap(9))
         title.addView(label(
             if (hasSession()) "GPT 연결 준비 · " + accountName() + " 계정에 차량별 대화 저장"
@@ -1076,6 +1081,13 @@ class MainActivity : Activity() {
             .show()
     }
 
+    private fun liveMoodSummary(): String {
+        val state = hpe ?: return "차량 성격과 현재 감정 정보가 아직 없어."
+        val energy = if (demo) observedSnapshot?.fuelPercent else latest.energyPercent()
+        return "현재 감정: " + state.expression.headline +
+            (energy?.let { " · 에너지 ${it.toInt()}%" } ?: "")
+    }
+
     private fun initializeTts() {
         tts = TextToSpeech(this) { status ->
             mainHandler.post {
@@ -1100,8 +1112,11 @@ class MainActivity : Activity() {
             if (showError) Toast.makeText(this, ttsStatus, Toast.LENGTH_LONG).show()
             return
         }
-        val rate = hpe?.expression?.voiceSpeed?.toFloat()?.coerceIn(.75f, 1.2f) ?: 1f
+        val voice = identity?.voiceBlueprint
+        val rate = (.65 * (voice?.speechRate ?: 1.0) +
+            .35 * (hpe?.expression?.voiceSpeed ?: 1.0)).toFloat().coerceIn(.75f, 1.2f)
         tts?.setSpeechRate(rate)
+        tts?.setPitch((voice?.pitch ?: 1.0).toFloat().coerceIn(.8f, 1.25f))
         val status = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null,
             "vpe-" + System.currentTimeMillis())
         if (status != TextToSpeech.SUCCESS && showError)
@@ -1119,12 +1134,16 @@ class MainActivity : Activity() {
         mainHandler.removeCallbacks(pollTask)
     }
 
-    private fun proactiveOnVehicleChange() {
-        if (demo || currentTab == "auth") return
+    private fun proactiveOnVehicleChange(firstConnection: Boolean = false) {
+        if (demo) return
         val state = hpe ?: return
-        val event = proactiveEngine.next(latest, state, System.currentTimeMillis()) ?: return
+        val now = System.currentTimeMillis()
+        val event = proactiveEngine.next(latest, state, now)
+            ?: if (firstConnection) proactiveEngine.greeting(state, now) else null
+            ?: return
         lastProactiveText = event.text
         diagnosticLogs.add("PROACTIVE_" + event.kind.uppercase(Locale.ROOT))
+        if (diagnosticLogs.size > 80) diagnosticLogs.removeAt(0)
         messages.add("VPE" to event.text)
         saveMessages()
         if (currentTab == "chat") {
@@ -1379,6 +1398,8 @@ class MainActivity : Activity() {
             page.addView(evidence)
         }
         page.addView(gap(18))
+        page.addView(label("음성 출력 상태: " + ttsStatus, 13f, secondary))
+        page.addView(gap(10))
         page.addView(label("개발자 로그", 20f, ink, true))
         page.addView(gap(10))
         val logCard = card()
@@ -1439,25 +1460,7 @@ class MainActivity : Activity() {
                     if (diagnosticLogs.size > 80) diagnosticLogs.removeAt(0)
                     if (reading != null) {
                         val before = latest
-                        latest = latest.copy(
-                            odometerKm = reading.odometerKm ?: latest.odometerKm,
-                            fuelPercent = reading.fuelPercent ?: latest.fuelPercent,
-                            modelYear = reading.modelYear ?: latest.modelYear,
-                            evBatteryLevel = reading.evBatteryLevel ?: latest.evBatteryLevel,
-                            vehicleKey = reading.vehicleKey ?: latest.vehicleKey,
-                            cabinTemperatureC = reading.cabinTemperatureC ?: latest.cabinTemperatureC,
-                            targetTemperatureC = reading.targetTemperatureC ?: latest.targetTemperatureC,
-                            hvacOn = reading.hvacOn ?: latest.hvacOn,
-                            charging = reading.charging ?: latest.charging,
-                            parked = reading.parked ?: latest.parked,
-                            safetyWarning = reading.safetyWarning ?: latest.safetyWarning,
-                            tripDistanceRaw = reading.tripDistanceRaw ?: latest.tripDistanceRaw,
-                            tripTimeRaw = reading.tripTimeRaw ?: latest.tripTimeRaw,
-                            drivingMode = reading.drivingMode ?: latest.drivingMode,
-                            washerFluidWarning = reading.washerFluidWarning ?: latest.washerFluidWarning,
-                            engineOilState = reading.engineOilState ?: latest.engineOilState,
-                            brakeFluidState = reading.brakeFluidState ?: latest.brakeFluidState
-                        )
+                        latest = latest.mergeObserved(reading)
                         if (connecting && latest.odometerKm != null &&
                             latest.energyPercent() != null && latest.vehicleKey != null) {
                             finishConnection(serial, timeout = false)
@@ -1523,7 +1526,7 @@ class MainActivity : Activity() {
         updateHumanPersonality()
         activateChatScope()
         startLivePolling()
-        proactiveOnVehicleChange()
+        proactiveOnVehicleChange(firstConnection = true)
         syncCurrentVehicle(force = true)
         return true
     }
@@ -1548,6 +1551,7 @@ class MainActivity : Activity() {
             store.save(evolved)
         }
         updateHumanPersonality()
+        liveMoodStatus?.text = liveMoodSummary()
         proactiveOnVehicleChange()
         syncCurrentVehicle()
         if (currentTab == "home" || currentTab == "diagnostics" || currentTab == "report") render(currentTab)

@@ -6,6 +6,8 @@ package com.vpe.hyundai
 data class VpeProactiveEvent(val kind: String, val text: String)
 
 class LiveProactiveEngine {
+    private var activeVehicleKey: String? = null
+    private var greeted = false
     private var lowEnergySpoken = false
     private var criticalEnergySpoken = false
     private var hotSpoken = false
@@ -14,7 +16,36 @@ class LiveProactiveEngine {
     private var washerWarningSpoken = false
     private var lastSpokenAt: Long? = null
 
+    private fun ensureVehicle(key: String) {
+        if (activeVehicleKey == key) return
+        activeVehicleKey = key
+        greeted = false
+        lowEnergySpoken = false
+        criticalEnergySpoken = false
+        hotSpoken = false
+        coldSpoken = false
+        chargeSwitchSpoken = false
+        washerWarningSpoken = false
+        lastSpokenAt = null
+    }
+
+    fun greeting(state: HpeState, nowMs: Long): VpeProactiveEvent? {
+        ensureVehicle(state.key)
+        if (greeted || lastSpokenAt != null) return null
+        greeted = true
+        lastSpokenAt = nowMs
+        val playful = state.core.traits[5] >= .56
+        val warm = state.core.traits[2] >= .58
+        val text = when {
+            playful -> "오늘은 또 어떤 일이 생길까? 같이 출발해 보자!"
+            warm -> "반가워. 오늘도 우리 함께 편안하게 가자."
+            else -> "차량 연결이 완료됐어. 오늘도 함께할 준비가 됐어."
+        }
+        return VpeProactiveEvent("greeting", text)
+    }
+
     fun next(readings: VehicleReadings, state: HpeState, nowMs: Long): VpeProactiveEvent? {
+        ensureVehicle(state.key)
         val energy = readings.energyPercent()
         if (energy == null || energy >= 26.0) {
             lowEnergySpoken = false
@@ -37,7 +68,8 @@ class LiveProactiveEngine {
             else -> return null
         }
         // Prioritize brief, spaced prompts instead of reacting to every sensor poll.
-        if (lastSpokenAt != null && nowMs - lastSpokenAt!! < 8_000L) return null
+        val urgent = kind == "washer" || kind == "critical_energy"
+        if (!urgent && lastSpokenAt != null && nowMs - lastSpokenAt!! < 8_000L) return null
         lastSpokenAt = nowMs
         val message = when (kind) {
             "washer" -> "워셔액 부족 알림이 들어왔어. 다음에 안전한 곳에서 확인해 줘."

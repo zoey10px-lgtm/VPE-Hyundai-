@@ -86,7 +86,17 @@ data class HpeState(
 )
 
 object HumanPersonalityEngine {
-    const val VERSION = 2
+    const val VERSION = 3
+    // Engineering priors; not coefficients fitted to psychometric or vehicle data.
+    const val BASE_SEED_SPREAD = .20
+    const val SOCIAL_TO_E = .28
+    const val EXPLORATION_TO_N = .36
+    const val REGULARITY_TO_J = .32
+    const val EXPERIENCE_SCALE_KM = 250_000.0
+    const val MODEL_AGE_SCALE_YEARS = 25.0
+    const val FIRST_EVIDENCE_ADAPTATION = .35
+    const val MEANINGFUL_PATTERN_ADAPTATION = .12
+    const val MILEAGE_EVENT_ADAPTATION = .03
     private fun clamp(x: Double) = x.coerceIn(0.0, 1.0)
     private fun ratio(x: Double?) = x?.takeIf { it.isFinite() && it in 0.0..1.0 }
     private fun normal(x: Double) = clamp(x)
@@ -103,20 +113,20 @@ object HumanPersonalityEngine {
         val regular = ratio(s.regularityRatio)
         val social = ratio(s.interactionRatio)
         val experience = s.odometerKm?.takeIf { it.isFinite() && it >= 0.0 }
-            ?.let { clamp(it / 250000.0) }
+            ?.let { clamp(it / EXPERIENCE_SCALE_KM) }
         val modelAge = s.modelAgeYears?.takeIf { it.isFinite() && it in 0.0..60.0 }
-            ?.let { clamp(it / 25.0) }
+            ?.let { clamp(it / MODEL_AGE_SCALE_YEARS) }
         val seasoning = when {
             experience != null && modelAge != null -> .65 * experience + .35 * modelAge
             experience != null -> experience
             else -> modelAge
         }
-        fun base(name: String) = .5 + .28 * (unitSeed(s.vehicleKey, name) - .5)
+        fun base(name: String) = .5 + BASE_SEED_SPREAD * (unitSeed(s.vehicleKey, name) - .5)
         val axes = listOf(
-            clamp(base("E") + (social?.let { .28 * (it - .5) } ?: 0.0)),
-            clamp(base("N") + (explore?.let { .36 * (it - .5) } ?: 0.0)),
+            clamp(base("E") + (social?.let { SOCIAL_TO_E * (it - .5) } ?: 0.0)),
+            clamp(base("N") + (explore?.let { EXPLORATION_TO_N * (it - .5) } ?: 0.0)),
             clamp(base("T")),
-            clamp(base("J") + (regular?.let { .32 * (it - .5) } ?: 0.0))
+            clamp(base("J") + (regular?.let { REGULARITY_TO_J * (it - .5) } ?: 0.0))
         )
         val e = axes[0]; val n = axes[1]; val t = axes[2]; val j = axes[3]
         val traits = listOf(
@@ -146,9 +156,12 @@ object HumanPersonalityEngine {
         val regular = ratio(s.regularityRatio)
         val social = ratio(s.interactionRatio)
         val changed = delta >= 100.0 ||
-            (explore != null && old.lastExploration != null && abs(explore-old.lastExploration) >= .05) ||
-            (regular != null && old.lastRegularity != null && abs(regular-old.lastRegularity) >= .05) ||
-            (social != null && old.lastInteraction != null && abs(social-old.lastInteraction) >= .05)
+            (previous != null && explore != null && (old.lastExploration == null ||
+                abs(explore-old.lastExploration) >= .05)) ||
+            (previous != null && regular != null && (old.lastRegularity == null ||
+                abs(regular-old.lastRegularity) >= .05)) ||
+            (previous != null && social != null && (old.lastInteraction == null ||
+                abs(social-old.lastInteraction) >= .05))
         val notes = if (changed && delta >= 100.0)
             (old.highlights + ("함께 달린 거리 +" + delta.toInt() + "km")).takeLast(12)
         else old.highlights
@@ -244,21 +257,34 @@ object HumanPersonalityEngine {
         val old = previous?.takeIf { it.key == s.vehicleKey }
         val memory = learn(old?.memory, s)
         val initialCore = old?.core ?: makeCore(s)
-        // McAdams-inspired character adaptation: only a meaningful experience
-        // permits a tiny update. Sensor polling and momentary hunger never do.
-        val core = if (old != null &&
-            memory.meaningfulEvents > old.memory.meaningfulEvents) {
-            val candidate = makeCore(s)
-            HpeCore(
-                axes = initialCore.axes.zip(candidate.axes) { stable, observed ->
-                    clamp(.97 * stable + .03 * observed)
-                },
-                traits = initialCore.traits.zip(candidate.traits) { stable, observed ->
-                    clamp(.97 * stable + .03 * observed)
-                },
-                confidence = max(initialCore.confidence, candidate.confidence)
-            )
-        } else initialCore
+        // The first real long-term evidence is worth more than periodic mileage.
+        val gainedEvidence = old != null && (
+            (old.lastSignals.explorationRatio == null && ratio(s.explorationRatio) != null) ||
+            (old.lastSignals.regularityRatio == null && ratio(s.regularityRatio) != null) ||
+            (old.lastSignals.interactionRatio == null && ratio(s.interactionRatio) != null) ||
+            (old.lastSignals.modelAgeYears == null && s.modelAgeYears != null) ||
+            (old.lastSignals.odometerKm == null && s.odometerKm != null))
+        val meaningful = old != null && memory.meaningfulEvents > old.memory.meaningfulEvents
+        val candidate = makeCore(s)
+        val weight = when {
+            old == null -> 1.0
+            gainedEvidence -> FIRST_EVIDENCE_ADAPTATION
+            meaningful && (s.explorationRatio != old.lastSignals.explorationRatio ||
+                s.regularityRatio != old.lastSignals.regularityRatio ||
+                s.interactionRatio != old.lastSignals.interactionRatio) ->
+                MEANINGFUL_PATTERN_ADAPTATION
+            meaningful -> MILEAGE_EVENT_ADAPTATION
+            else -> 0.0
+        }
+        val core = if (old == null) candidate else HpeCore(
+            axes = initialCore.axes.zip(candidate.axes) { stable, observed ->
+                clamp((1.0-weight) * stable + weight * observed)
+            },
+            traits = initialCore.traits.zip(candidate.traits) { stable, observed ->
+                clamp((1.0-weight) * stable + weight * observed)
+            },
+            confidence = max(initialCore.confidence, candidate.confidence)
+        )
         val a = appraise(s)
         val mood = affect(a, s)
         val style = express(core, mood, s)
@@ -271,7 +297,12 @@ object HumanPersonalityEngine {
             if (s.charging != null) add("충전 상태: 수신값")
             if (s.parked != null) add("정차 상태: 수신값")
             if (s.explorationRatio == null) add("신규 방문 이력: 미연결")
+            else add("신규 방문 비율: 장기 패턴 집계 입력")
             if (s.regularityRatio == null) add("운행 규칙성: 미연결")
+            else add("운행 규칙성: 장기 패턴 집계 입력")
+            if (s.interactionRatio == null) add("대화 빈도: 미연결")
+            else add("대화 빈도: 장기 패턴 집계 입력")
+            add("장기 입력 커버리지: ${(core.confidence * 100).toInt()}% (5개 항목 기준)")
             add("MBTI T/F: 차량 고유 시드 기반 창작 유형")
         }
         return HpeState(s.vehicleKey,core,memory,mood,style,sources,s)
