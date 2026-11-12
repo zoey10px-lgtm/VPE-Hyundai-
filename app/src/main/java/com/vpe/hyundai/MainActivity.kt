@@ -38,6 +38,9 @@ class MainActivity : Activity() {
     private lateinit var sdk: PleosVehicleClient
     private lateinit var store: IdentityStore
     private lateinit var hpeStore: HpeStore
+    private lateinit var patternTracker: VehiclePatternTracker
+    private var modeUpdatedAtMs: Long = 0L
+    private var cruiseUpdatedAtMs: Long = 0L
     private var hpe: HpeState? = null
     private lateinit var root: LinearLayout
     private lateinit var contentHost: LinearLayout
@@ -67,6 +70,19 @@ class MainActivity : Activity() {
         override fun run() {
             if (!livePolling || isFinishing || isDestroyed) return
             if (!demo && !connecting && environment.automotive) {
+                // Use time-separated fresh SDK observations to build real vehicle
+                // habits, and re-check deferred speech after its cooldown expires.
+                val nowMs = System.currentTimeMillis()
+                latest.vehicleKey?.let { key ->
+                    patternTracker.sample(
+                        key, latest.drivingMode, latest.cruiseControlState,
+                        modeUpdatedAtMs > 0L && nowMs - modeUpdatedAtMs < 16_000L,
+                        cruiseUpdatedAtMs > 0L && nowMs - cruiseUpdatedAtMs < 16_000L)
+                    if (identity?.vehicleKey == key) updateHumanPersonality()
+                }
+                proactiveOnVehicleChange()
+                if (currentTab == "home" || currentTab == "report")
+                    render(currentTab)
                 liveSdkCallback?.let { callback ->
                     Thread { sdk.readVehicleData(callback) }.start()
                 }
@@ -113,6 +129,7 @@ class MainActivity : Activity() {
         sdk = PleosVehicleClient(this)
         store = IdentityStore(this)
         hpeStore = HpeStore(this)
+        patternTracker = VehiclePatternTracker(this)
         identity = store.load()?.takeIf { !it.vehicleKey.startsWith("demo") }
         hpe = identity?.let { hpeStore.load(it.vehicleKey) }
         connectionNote = when {
@@ -476,9 +493,7 @@ class MainActivity : Activity() {
         }
         observed("누적 주행거리",
             latest.odometerKm?.let { String.format(Locale.KOREA, "%,.0fkm", it) },
-            if ((latest.odometerKm ?: 0.0) >= 250_000.0)
-                "장기 활동성·자신감 (현재 정규화 상한 도달)"
-            else "장기 활동성·자신감")
+            "장기 활동성·자신감 (100만 km까지 로그 정규화)")
         observed("VIN 기반 연식", latest.modelYear?.let { "${it}년 추정" },
             "장기 자신감·신중함 (VIN 모델연도 추정인 경우만)")
         observed("배터리 SOC", latest.evBatteryLevel?.let { "${it.toInt()}%" },
@@ -491,8 +506,21 @@ class MainActivity : Activity() {
             }, "단기 추위·더위·자동 발화")
         observed("충전 스위치", latest.charging?.let { if (it) "ON" else "OFF" },
             "단기 안도감·충전 알림 (실제 충전 전류 미확인)")
-        observed("주행 모드", latest.drivingMode, "GPT 대화 맥락 · 장기 습관 집계는 미연결")
-        observed("크루즈 상태", latest.cruiseControlState, "GPT 대화 맥락 · 장기 사용 비율 미연결")
+        val patterns = identity?.vehicleKey?.let { patternTracker.summary(it) }
+        observed("주행 모드", latest.drivingMode,
+            "GPT 맥락 + 관측 모드 다양성 누적 → N/S 보정")
+        observed("크루즈 상태", latest.cruiseControlState,
+            "GPT 맥락 + 크루즈 사용 비율 누적 → J/P 보정")
+        observed("모드 다양성 누적", patterns?.modeVarietyRatio?.let { percent(it) },
+            "N/S 장기 성격 · 모드 관측 4회 이상부터 반영")
+        observed("크루즈 사용률 누적", patterns?.cruiseUseRatio?.let { percent(it) },
+            "J/P 장기 성격 · 크루즈 관측 4회 이상부터 반영")
+        observed("VPE 대화 상호작용", patterns?.interactions?.toString()?.plus("회"),
+            "E/I 장기 성격 · 대화 3회 이상부터 반영")
+        patterns?.let {
+            sources.addView(label(it.evidenceSummary, 12f, violet, true))
+            sources.addView(gap(7))
+        }
         observed("크루즈 목표속도", latest.cruiseTargetSpeedRaw,
             "GPT 대화 맥락 · 실제 주행속도 아님")
         observed("공조 팬속도", latest.fanSpeedLevel?.toString(),
@@ -506,8 +534,9 @@ class MainActivity : Activity() {
                 (latest.tripDistanceRaw ?: "미수신") + " / " + (latest.tripTimeRaw ?: "미수신"),
             "운행 이력 후보 · 원값 단위 검증 후 활용")
         sources.addView(label(
-            "MBTI E/N/J용 탐험·규칙성·상호작용 비율은 아직 미수신이야. " +
-                "현재 MBTI는 차량 식별키 기반 초기 스타일이므로 일시적 센서값으로 변하지 않아.",
+            "MBTI는 지속적인 운전 모드 다양성(N), 크루즈 사용(J), VPE 대화(E) " +
+                "관측이 쌓여 서서히 바뀔 수 있어. SOC·온도는 단기 감정만 바꿔. " +
+                "운행 패턴 가중치는 공개된 엔지니어링 추정치이며 심리검사 결과가 아니야.",
             13f, violet))
         page.addView(sources)
     }
@@ -595,7 +624,13 @@ class MainActivity : Activity() {
         personality.addView(gap(13))
         personality.addView(label("MBTI", 13f, secondary))
         personality.addView(label(state.core.mbti, 52f, ink, true))
-        personality.addView(label("장기 성격 · SOC·온도 변경은 MBTI 대신 단기 감정에 반영", 13f, secondary))
+        personality.addView(label("장기 성격 · SOC·온도 변경은 단기 감정, " +
+            "누적 운전·대화 패턴은 MBTI 연속 축에 반영", 13f, secondary))
+        val axisNames = listOf("외향 E/I", "새로움 N/S", "분석 T/F", "계획 J/P")
+        state.core.axes.forEachIndexed { idx, axis ->
+            personality.addView(label(axisNames[idx] + "  " +
+                String.format(Locale.KOREA, "%.1f%%", axis * 100.0), 13f, secondary))
+        }
         personality.addView(label("관측 장기 입력 커버리지 " + percent(state.core.confidence),
             13f, violet, true))
         personality.addView(gap(10))
@@ -665,8 +700,9 @@ class MainActivity : Activity() {
             radarCard.addView(gap(6))
         }
         radarCard.addView(label(
-            "실측 장기 영향: 주행거리→활동성·자신감, 연식→자신감·신중함. " +
-                "MBTI E/N/T/J는 아직 차량 식별키 초기 시드 기반이야.", 13f, violet))
+            "실측 장기 영향: 주행거리→활동성·자신감, 연식→자신감·신중함, " +
+                "운전 모드 다양성→N/S, 크루즈 사용→J/P, VPE 대화→E/I. " +
+                "관측 부족인 축과 T/F 축은 초기 시드 사용.", 13f, violet))
         page.addView(radarCard)
         page.addView(gap(15))
 
@@ -1396,6 +1432,10 @@ class MainActivity : Activity() {
     }
 
     private fun sendMessage(message: String) {
+        if (!demo) identity?.vehicleKey?.let { key ->
+            patternTracker.recordInteraction(key)
+            updateHumanPersonality()
+        }
         val state = hpe
         val token = sessionToken()
         val id = identity
@@ -1619,6 +1659,8 @@ class MainActivity : Activity() {
         lastProactiveText = null
         lastLiveChange = null
         proactiveStatus = "SDK 연결 진행 중"
+        modeUpdatedAtMs = 0L
+        cruiseUpdatedAtMs = 0L
         connecting = true
         if (demo) { identity = null; observedSnapshot = null }
         demo = false
@@ -1639,6 +1681,10 @@ class MainActivity : Activity() {
                     if (reading != null) {
                         val before = latest
                         latest = latest.mergeObserved(reading)
+                        if (reading.drivingMode != null)
+                            modeUpdatedAtMs = System.currentTimeMillis()
+                        if (reading.cruiseControlState != null)
+                            cruiseUpdatedAtMs = System.currentTimeMillis()
                         if (latest != before) observedChange(before, latest)?.let { lastLiveChange = it }
                         if (connecting && latest.odometerKm != null &&
                             latest.energyPercent() != null && latest.vehicleKey != null) {
@@ -1744,6 +1790,7 @@ class MainActivity : Activity() {
             odometerKm = snapshot.odometerKm, evBatteryLevel = snapshot.fuelPercent,
             vehicleKey = key
         ) else latest
+        val patterns = if (demo) null else patternTracker.summary(key)
         val signals = HpeSignals(
             vehicleKey = key,
             odometerKm = readings.odometerKm,
@@ -1756,7 +1803,10 @@ class MainActivity : Activity() {
             safetyWarning = if (readings.safetyWarning == true || readings.washerFluidWarning == true) true else null,
             modelAgeYears = if (demo) snapshot.ageYears else readings.modelYear?.let {
                 (Calendar.getInstance().get(Calendar.YEAR) - it).toDouble()
-            }
+            },
+            interactionRatio = patterns?.interactionRatio,
+            modeVarietyRatio = patterns?.modeVarietyRatio,
+            cruiseUseRatio = patterns?.cruiseUseRatio
         )
         val previous = hpe?.takeIf { it.key == key }
             ?: if (demo) null else hpeStore.load(key)
