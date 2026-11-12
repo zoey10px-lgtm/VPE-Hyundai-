@@ -28,19 +28,18 @@ export function vehiclePersonaProfile(context) {
   const hunger=numeric(context.affect?.hunger,0);
   const voice=context.voice||{};
   const feminine=context.voicePresentation==="여성형" ||
-    (context.voicePresentation!=="남성형" && numeric(voice.genderExpression)<1 &&
-     numeric(voice.genderExpression)>=.5);
+    (context.voicePresentation!=="남성형" && numeric(voice.genderExpression)>=.5);
   const energy=clamp(.33*e+.30*activity+.25*expressive+.12*confidence-.16*tension);
   const hesitance=clamp(.48*(1-confidence)+.26*(1-e)+.26*caution);
   const affection=clamp(.46*(1-t)+.32*warmth+.22*(1-caution));
   const analytical=clamp(.73*t+.27*caution);
-  const speechSpeed=Number(clamp(.86+.34*energy+.10*confidence-.11*hesitance-.10*tension,.78,1.23).toFixed(2));
+  const speechSpeed=Number(clamp(.80+.48*energy+.12*confidence-.20*hesitance-.11*tension,.78,1.23).toFixed(2));
   const voiceName=feminine
-    ? (energy>.70 && playfulness>.55 ? "coral" : warmth>.66 && energy<.45 ? "shimmer" : "marin")
-    : (energy>.70 && playfulness>.55 ? "echo" : energy<.39 && confidence<.44 ? "ash" : "cedar");
-  const type=t>=.60?"T":t<=.40?"F":"BALANCED";
-  const social=e>=.59?"OUTGOING":e<=.42?"RESERVED":"MIDDLE";
-  const pacing=energy>.66?"ENERGETIC":energy<.41?"CALM":"STEADY";
+    ? (energy>.59 && playfulness>.55 ? "coral" : warmth>.58 && energy<.46 ? "shimmer" : "marin")
+    : (energy>.59 && playfulness>.55 ? "echo" : energy<.46 && confidence<.53 ? "ash" : "cedar");
+  const type=t>=.52?"T":t<=.48?"F":"BALANCED";
+  const social=e>=.52?"OUTGOING":e<=.48?"RESERVED":"MIDDLE";
+  const pacing=energy>.57?"ENERGETIC":energy<.47?"CALM":"STEADY";
   const personalityName=[social,pacing,type].join("_");
 
   const thinking=type==="T"
