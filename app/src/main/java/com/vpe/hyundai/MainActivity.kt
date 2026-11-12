@@ -56,6 +56,8 @@ class MainActivity : Activity() {
     private var pendingChats = 0
     private val proactiveEngine = LiveProactiveEngine()
     private var lastProactiveText: String? = null
+    private var lastLiveChange: String? = null
+    private var proactiveStatus: String = "차량 연결 후 이벤트 감지 시작"
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var ttsStatus = "음성 엔진 초기화 중"
@@ -425,6 +427,103 @@ class MainActivity : Activity() {
             else "Pleos SDK에서 실제 수신한 값만 표시해요. 미수신 항목은 확인된 값이 아니에요.",
             13f, secondary
         ))
+        if (identity != null && hpe != null) addLivePersonaEvidence(page)
+    }
+
+    private fun percent(v: Double): String =
+        String.format(Locale.KOREA, "%.0f%%", v.coerceIn(0.0, 1.0) * 100.0)
+
+    /** Every row says explicitly whether the value changes HPE or only GPT context. */
+    private fun addLivePersonaEvidence(page: LinearLayout) {
+        val state = hpe ?: return
+        page.addView(gap(18))
+        val mood = card()
+        mood.addView(label("실시간 페르소나 변화", 17f, teal, true))
+        mood.addView(gap(9))
+        mood.addView(label("현재 감정: " + state.expression.headline +
+            "  ·  장기 MBTI " + state.core.mbti, 16f, ink, true))
+        mood.addView(gap(10))
+        mood.addView(dataRow("에너지 부족 / 긴장",
+            percent(state.affect.hunger) + " / " + percent(state.affect.tension)))
+        mood.addView(gap(8))
+        mood.addView(dataRow("추위 / 더위",
+            percent(state.affect.cold) + " / " + percent(state.affect.heat)))
+        mood.addView(gap(8))
+        mood.addView(dataRow("안도감", percent(state.affect.relief)))
+        mood.addView(gap(8))
+        mood.addView(label("배터리·온도는 감정만 즉시 변화시켜. MBTI는 장기 운행 패턴이 쌓일 때 학습해.",
+            13f, secondary))
+        lastLiveChange?.let {
+            mood.addView(gap(9))
+            mood.addView(label("최근 데이터 변화: " + it, 13f, violet, true))
+        }
+        mood.addView(gap(9))
+        mood.addView(label("능동 발화: " + proactiveStatus, 13f, teal))
+        mood.addView(gap(5))
+        mood.addView(label("음성 엔진: " + ttsStatus, 12f, secondary))
+        page.addView(mood)
+
+        page.addView(gap(16))
+        val sources = card()
+        sources.addView(label("Pleos 데이터 · 페르소나 영향", 17f, teal, true))
+        sources.addView(gap(11))
+        fun observed(labelText: String, value: String?, contribution: String) {
+            sources.addView(dataRow(labelText, value ?: "미수신"))
+            sources.addView(gap(3))
+            sources.addView(label("영향: " + contribution, 12f, secondary))
+            sources.addView(gap(11))
+        }
+        observed("누적 주행거리",
+            latest.odometerKm?.let { String.format(Locale.KOREA, "%,.0fkm", it) },
+            if ((latest.odometerKm ?: 0.0) >= 250_000.0)
+                "장기 활동성·자신감 (현재 정규화 상한 도달)"
+            else "장기 활동성·자신감")
+        observed("VIN 기반 연식", latest.modelYear?.let { "${it}년 추정" },
+            "장기 자신감·신중함 (VIN 모델연도 추정인 경우만)")
+        observed("배터리 SOC", latest.evBatteryLevel?.let { "${it.toInt()}%" },
+            "단기 배고픔·긴장·배터리 경고")
+        observed("실내 / 목표 온도",
+            latest.cabinTemperatureC?.let { cabin ->
+                latest.targetTemperatureC?.let { target ->
+                    String.format(Locale.KOREA, "%.1f / %.1f°C", cabin, target)
+                }
+            }, "단기 추위·더위·자동 발화")
+        observed("충전 스위치", latest.charging?.let { if (it) "ON" else "OFF" },
+            "단기 안도감·충전 알림 (실제 충전 전류 미확인)")
+        observed("주행 모드", latest.drivingMode, "GPT 대화 맥락 · 장기 습관 집계는 미연결")
+        observed("크루즈 상태", latest.cruiseControlState, "GPT 대화 맥락 · 장기 사용 비율 미연결")
+        observed("크루즈 목표속도", latest.cruiseTargetSpeedRaw,
+            "GPT 대화 맥락 · 실제 주행속도 아님")
+        observed("공조 팬속도", latest.fanSpeedLevel?.toString(),
+            "GPT 대화 맥락 · 사용 패턴 미집계")
+        observed("주행가능거리", latest.rangeRemainingRaw,
+            "GPT 대화 맥락 · SDK 단위 검증 후 점수 반영")
+        observed("배터리 용량", latest.batteryCapacityRaw,
+            "GPT 차량 특성 · SDK 단위 검증 후 점수 반영")
+        observed("트립 거리 / 시간",
+            if (latest.tripDistanceRaw == null && latest.tripTimeRaw == null) null else
+                (latest.tripDistanceRaw ?: "미수신") + " / " + (latest.tripTimeRaw ?: "미수신"),
+            "운행 이력 후보 · 원값 단위 검증 후 활용")
+        sources.addView(label(
+            "MBTI E/N/J용 탐험·규칙성·상호작용 비율은 아직 미수신이야. " +
+                "현재 MBTI는 차량 식별키 기반 초기 스타일이므로 일시적 센서값으로 변하지 않아.",
+            13f, violet))
+        page.addView(sources)
+    }
+
+    private fun observedChange(old: VehicleReadings, next: VehicleReadings): String? = when {
+        old.energyPercent() != next.energyPercent() ->
+            "에너지 " + (next.energyPercent()?.let { percent(it / 100.0) } ?: "미수신") +
+                " → 배고픔·긴장 자동 재계산"
+        old.cabinTemperatureC != next.cabinTemperatureC ||
+            old.targetCabinC != next.targetCabinC ->
+            "공조 온도 변경 → 추위·더위 자동 재계산"
+        old.charging != next.charging -> "충전 스위치 변경 → 안도감 자동 재계산"
+        old.odometerKm != next.odometerKm -> "주행거리 변경 → 장기 경험 조건 평가"
+        old.drivingMode != next.drivingMode -> "주행 모드 수신 → GPT 맥락 변경"
+        old.cruiseControlState != next.cruiseControlState -> "크루즈 상태 수신 → GPT 맥락 변경"
+        old.fanSpeedLevel != next.fanSpeedLevel -> "공조 팬 변경 → GPT 맥락 변경"
+        else -> null
     }
 
     /** Vehicle model isn't exposed by our confirmed Pleos getters. Allow a truthful local name. */
@@ -495,6 +594,9 @@ class MainActivity : Activity() {
         personality.addView(gap(13))
         personality.addView(label("MBTI", 13f, secondary))
         personality.addView(label(state.core.mbti, 52f, ink, true))
+        personality.addView(label("장기 성격 · SOC·온도 변경은 MBTI 대신 단기 감정에 반영", 13f, secondary))
+        personality.addView(label("관측 장기 입력 커버리지 " + percent(state.core.confidence),
+            13f, violet, true))
         personality.addView(gap(10))
         val axes = state.core.axes
         val narrative = listOf(
@@ -556,6 +658,14 @@ class MainActivity : Activity() {
             "차량별 성격을 나타내는 상대적 지표이며, 실측되지 않은 기질은 초기 설정값을 포함해요.",
             12f, secondary
         ))
+        radarCard.addView(gap(12))
+        traitNames.forEachIndexed { index, name ->
+            radarCard.addView(dataRow(name + " 점수", percent(traits[index])))
+            radarCard.addView(gap(6))
+        }
+        radarCard.addView(label(
+            "실측 장기 영향: 주행거리→활동성·자신감, 연식→자신감·신중함. " +
+                "MBTI E/N/T/J는 아직 차량 식별키 초기 시드 기반이야.", 13f, violet))
         page.addView(radarCard)
         page.addView(gap(15))
 
@@ -1142,6 +1252,8 @@ class MainActivity : Activity() {
             ?: if (firstConnection) proactiveEngine.greeting(state, now) else null)
             ?: return
         lastProactiveText = event.text
+        proactiveStatus = if (ttsReady) "이벤트 " + event.kind + " · 음성 출력 요청"
+            else "이벤트 " + event.kind + " · 텍스트 출력됨 (TTS 미준비)"
         diagnosticLogs.add("PROACTIVE_" + event.kind.uppercase(Locale.ROOT))
         if (diagnosticLogs.size > 80) diagnosticLogs.removeAt(0)
         messages.add("VPE" to event.text)
@@ -1459,6 +1571,9 @@ class MainActivity : Activity() {
             return
         }
         stopLivePolling()
+        lastProactiveText = null
+        lastLiveChange = null
+        proactiveStatus = "SDK 연결 진행 중"
         connecting = true
         if (demo) { identity = null; observedSnapshot = null }
         demo = false
@@ -1479,6 +1594,7 @@ class MainActivity : Activity() {
                     if (reading != null) {
                         val before = latest
                         latest = latest.mergeObserved(reading)
+                        if (latest != before) observedChange(before, latest)?.let { lastLiveChange = it }
                         if (connecting && latest.odometerKm != null &&
                             latest.energyPercent() != null && latest.vehicleKey != null) {
                             finishConnection(serial, timeout = false)
