@@ -89,6 +89,41 @@ class HumanPersonalityEngineTest {
         assertEquals(a.core, HumanPersonalityEngine.observe(car()).core)
     }
 
+    @Test fun firstObservedLongTermPatternInfluencesIdentityWithoutRegeneration() {
+        val initial = HumanPersonalityEngine.observe(car(km=1000.0))
+        val observed = HumanPersonalityEngine.observe(
+            car(km=1000.0).copy(explorationRatio=1.0),initial)
+        assertTrue(observed.core.axes[1] > initial.core.axes[1])
+        assertTrue(observed.core.confidence > initial.core.confidence)
+        assertEquals(1,observed.memory.meaningfulEvents)
+        val again = HumanPersonalityEngine.observe(
+            car(km=1000.0).copy(explorationRatio=1.0),observed)
+        assertEquals(observed.core,again.core)
+        assertEquals(observed.memory.meaningfulEvents,again.memory.meaningfulEvents)
+    }
+
+    @Test fun firstVinAgeEvidenceUpdatesCoverageWithoutFakeMileage() {
+        val initial = HumanPersonalityEngine.observe(car())
+        val observed = HumanPersonalityEngine.observe(car().copy(modelAgeYears=20.0),initial)
+        assertTrue(observed.core.confidence > initial.core.confidence)
+        assertNotEquals(initial.core.traits[3],observed.core.traits[3])
+        assertEquals(0,observed.memory.meaningfulEvents)
+    }
+
+    @Test fun longTermEvidenceHasExpectedDirectionalEffect() {
+        val input = HpeSignals("same-car",odometerKm=100.0)
+        val low = HumanPersonalityEngine.makeCore(input.copy(
+            interactionRatio=0.0,explorationRatio=0.0,regularityRatio=0.0))
+        val high = HumanPersonalityEngine.makeCore(input.copy(
+            interactionRatio=1.0,explorationRatio=1.0,regularityRatio=1.0))
+        for (axis in listOf(0,1,3)) assertTrue(high.axes[axis] > low.axes[axis])
+        assertEquals(low.axes[2],high.axes[2],0.0)
+        assertTrue(high.traits[0] > low.traits[0])
+        assertTrue(high.traits[1] > low.traits[1])
+        assertTrue(high.traits[2] > low.traits[2])
+        assertTrue(high.traits.all { it in 0.0..1.0 })
+    }
+
     @Test fun memoryDoesNotConfuseOldOdometerWithJointExperience() {
         val state = HumanPersonalityEngine.observe(car(km=199177.0))
         assertEquals(0.0,state.memory.sharedKm,.0001)
