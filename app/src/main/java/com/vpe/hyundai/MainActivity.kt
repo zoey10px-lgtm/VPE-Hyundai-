@@ -41,6 +41,7 @@ class MainActivity : Activity() {
     private lateinit var store: IdentityStore
     private lateinit var hpeStore: HpeStore
     private lateinit var patternTracker: VehiclePatternTracker
+    private lateinit var voiceHistorySync: VpeVoiceHistorySync
     private var modeUpdatedAtMs: Long = 0L
     private var cruiseUpdatedAtMs: Long = 0L
     private var hpe: HpeState? = null
@@ -71,6 +72,8 @@ class MainActivity : Activity() {
     private var voiceOrb: VpeWaveView? = null
     private var voiceOrbLabel: TextView? = null
     private var voiceHint: TextView? = null
+    private var voiceSaveHint: TextView? = null
+    private var voiceSaveStatus = "음성 대화 자막은 로컬에 먼저 저장하고 서버에 동기화해요"
     private var voicePersonaSignature: String? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
@@ -141,6 +144,7 @@ class MainActivity : Activity() {
         store = IdentityStore(this)
         hpeStore = HpeStore(this)
         patternTracker = VehiclePatternTracker(this)
+        voiceHistorySync = VpeVoiceHistorySync(this)
         identity = store.load()?.takeIf { !it.vehicleKey.startsWith("demo") }
         hpe = identity?.let { hpeStore.load(it.vehicleKey) }
         connectionNote = when {
@@ -230,6 +234,7 @@ class MainActivity : Activity() {
         voiceOrb = null
         voiceOrbLabel = null
         voiceHint = null
+        voiceSaveHint = null
         root = column().apply { setBackgroundColor(cream) }
         val header = row().apply { setPadding(d(24), d(15), d(24), d(12)) }
         val logo = label("vpe.", 29f, violet, true)
@@ -350,6 +355,9 @@ class MainActivity : Activity() {
                 !hasSession() -> "음성 대화는 로그인 후 시작돼요 · 오브를 누르면 로그인 화면으로 이동"
                 else -> "오브를 눌러 한국어 실시간 음성 대화를 시작해요"
             }, 12f, secondary).apply { gravity = Gravity.CENTER })
+        voiceSaveHint = label(voiceSaveStatus, 12f, teal).apply { gravity = Gravity.CENTER }
+        hero.addView(gap(5))
+        hero.addView(voiceSaveHint!!)
         val mainTitle = when {
             voiceActive -> "VPE와 실시간 음성 대화 중"
             connecting -> "당신의 차를 알아가는 중"
@@ -1339,6 +1347,29 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun queueVoiceTranscript(role: String, text: String) {
+        val scope = activeChatScope ?: return
+        val id = identity ?: return
+        val state = hpe ?: return
+        if (!hasSession() || demo || text.isBlank()) return
+        voiceHistorySync.enqueue(scope,id.vehicleKey,storedVehicleName(),
+            aiContext(state),role,text)
+        flushVoiceTranscriptQueue()
+    }
+
+    private fun flushVoiceTranscriptQueue() {
+        val scope = activeChatScope ?: return
+        if (!hasSession()) return
+        voiceHistorySync.flush(scope,serverUrl(),sessionToken()) { result ->
+            runOnUiThread {
+                voiceSaveStatus=result
+                voiceSaveHint?.text=result
+                if (diagnosticLogs.size > 80) diagnosticLogs.removeAt(0)
+                diagnosticLogs.add("VOICE_HISTORY: " + result.take(100))
+            }
+        }
+    }
+
     private fun startRealtimeVoice() {
         val id = identity ?: return
         val state = hpe ?: return
@@ -1349,6 +1380,7 @@ class MainActivity : Activity() {
         updateVoiceDisplay("실시간 음성 세션 연결 중…")
         tts?.stop()
         render("home")
+        flushVoiceTranscriptQueue()
         val context = aiContext(state)
         val token = sessionToken()
         val endpoint = serverUrl()
@@ -1377,6 +1409,7 @@ class MainActivity : Activity() {
                             runOnUiThread {
                                 if (!voiceActive) return@runOnUiThread
                                 messages.add("나" to text)
+                                queueVoiceTranscript("user",text)
                                 if (!demo) identity?.vehicleKey?.let {
                                     patternTracker.recordInteraction(it)
                                     updateHumanPersonality()
@@ -1390,6 +1423,7 @@ class MainActivity : Activity() {
                             runOnUiThread {
                                 if (!voiceActive) return@runOnUiThread
                                 messages.add("VPE" to text)
+                                queueVoiceTranscript("assistant",text)
                                 saveMessages()
                                 if (currentTab == "chat") render("chat")
                                 else updateVoiceDisplay("VPE: " + text.take(76))
@@ -2117,6 +2151,7 @@ class MainActivity : Activity() {
         }
         val token = sessionToken()
         if (token.isBlank() || identity == null) return
+        flushVoiceTranscriptQueue()
         val serial = historyLoadSerial
         Thread {
             val remote = runCatching { VpeAiClient.history(serverUrl(), token, key) }
@@ -2131,9 +2166,10 @@ class MainActivity : Activity() {
                             (if (entry.optString("role") == "user") "나" else "VPE") to
                                 entry.optString("content"))
                     }
+                    val merged = VoiceHistoryMerger.merge(messages.toList(),updated)
                     messages.clear()
-                    if (updated.isEmpty()) messages.add("VPE" to "안녕! 이 차량만의 대화를 시작해 보자.")
-                    else messages.addAll(updated.takeLast(60))
+                    if (merged.isEmpty()) messages.add("VPE" to "안녕! 이 차량만의 대화를 시작해 보자.")
+                    else messages.addAll(merged)
                     saveMessages()
                     if (currentTab == "chat") render("chat")
                 }
@@ -2170,6 +2206,7 @@ class MainActivity : Activity() {
         mainHandler.removeCallbacksAndMessages(null)
         realtimeVoice?.release()
         realtimeVoice = null
+        voiceHistorySync.release()
         tts?.stop()
         tts?.shutdown()
         sdk.release()
