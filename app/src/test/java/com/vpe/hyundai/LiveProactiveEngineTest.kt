@@ -53,4 +53,18 @@ class LiveProactiveEngineTest {
         assertEquals("charge_switch", e?.kind)
         assertTrue(e!!.text.contains("스위치"))
     }
+    @Test fun cooldownSuppressedTemperatureEventCanBeRetriedWithoutNewSdkValue() {
+        val events = LiveProactiveEngine()
+        val normal = state(80.0)
+        assertEquals("greeting", events.greeting(normal, 1_000L)?.kind)
+        val cold = state(80.0, cabin = 19.1, target = 29.5)
+        val reading = VehicleReadings(evBatteryLevel=80.0,
+            cabinTemperatureC=19.1,targetTemperatureC=29.5)
+        assertNull(events.next(reading,cold,2_000L))
+        // The eight-second activity ticker now calls next() even if the
+        // SDK values did not change after the initial suppressed event.
+        assertEquals("cold", events.next(reading,cold,9_100L)?.kind)
+        assertNull(events.next(reading,cold,18_000L))
+    }
+
 }
