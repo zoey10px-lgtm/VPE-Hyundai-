@@ -89,6 +89,24 @@ object VpeAiClient {
             URLEncoder.encode(vehicleKey, "UTF-8"), token)
             .optJSONArray("messages") ?: JSONArray()
 
+    /** An authenticated vehicle-initiated turn (no fake user message). */
+    fun proactiveAccount(
+        baseUrl: String,
+        token: String,
+        vehicleKey: String,
+        vehicleName: String,
+        eventKind: String,
+        context: JSONObject
+    ): String {
+        val result=request(baseUrl,"/api/proactive",token,
+            JSONObject().put("vehicleKey",vehicleKey)
+                .put("vehicleName",vehicleName)
+                .put("eventKind",eventKind)
+                .put("context",context))
+        return result.optString("reply").takeIf { it.isNotBlank() }
+            ?: throw IOException("능동형 GPT 응답이 비어 있어.")
+    }
+
     fun askAccount(
         baseUrl: String,
         token: String,

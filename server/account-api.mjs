@@ -1,5 +1,6 @@
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from "node:crypto";
 import { database, inTransaction, makeId, databaseConfigured } from "./db.mjs";
+import { validProactiveKind } from "./proactive-events.mjs";
 
 const sha = value => createHash("sha256").update(value).digest("hex");
 const issueToken = () => randomBytes(32).toString("base64url");
@@ -154,7 +155,26 @@ export async function handleV2(req,res,url,body,callModel) {
        ORDER BY m.id DESC LIMIT 60`,[user.id,key]);
     return json(res,200,{messages:r.rows.reverse()});
   }
-  if(req.method==="POST" && path==="/api/chat") {
+  if(req.method==="POST" && path==="/api/proactive") {
+     // The vehicle initiates a turn; never insert fabricated user speech.
+     if(invalidKey(body?.vehicleKey)||!safeContext(body?.context)||
+        !validProactiveKind(body?.eventKind))
+       return json(res,400,{error:"INVALID_PROACTIVE_EVENT"});
+     const db=await database();
+     const vehicle=await upsertVehicle(db,user.id,body.vehicleKey,body.context,body.vehicleName);
+     const rows=await db.query(
+       `SELECT role,content FROM vpe_messages WHERE user_id=$1 AND vehicle_id=$2
+        ORDER BY id DESC LIMIT 10`,[user.id,vehicle.id]);
+     const context={...vehicle.context,vehicleName:vehicle.display_name};
+     const reply=await callModel(null,context,rows.rows.reverse(),{
+       proactiveKind:body.eventKind
+     });
+     await db.query(
+       "INSERT INTO vpe_messages(user_id,vehicle_id,role,content) VALUES($1,$2,'assistant',$3)",
+       [user.id,vehicle.id,reply]);
+     return json(res,200,{reply,eventKind:body.eventKind,mode:"proactive"});
+   }
+   if(req.method==="POST" && path==="/api/chat") {
     if(invalidKey(body?.vehicleKey)||!safeContext(body?.context)||
        typeof body?.message!=="string" || body.message.trim().length===0 ||
        body.message.length>1000)
