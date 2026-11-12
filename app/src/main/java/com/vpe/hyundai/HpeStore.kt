@@ -28,8 +28,12 @@ class HpeStore(context: Context) {
             .put("explore", m.lastExploration)
             .put("regular", m.lastRegularity)
             .put("social", m.lastInteraction)
+            .put("modeVariety", m.lastModeVariety)
+            .put("cruiseUsage", m.lastCruiseUsage)
             .put("highlights", JSONArray().also { a -> m.highlights.forEach { a.put(it) } })
             .put("energy", s.energyPercent)
+            .put("modeVarietySignal", s.modeVarietyRatio)
+            .put("cruiseUsageSignal", s.cruiseUseRatio)
             .put("modelAgeYears", s.modelAgeYears)
             .put("cabin", s.actualCabinC)
             .put("target", s.targetCabinC)
@@ -59,6 +63,8 @@ class HpeStore(context: Context) {
             lastExploration = num("explore"),
             lastRegularity = num("regular"),
             lastInteraction = num("social"),
+            lastModeVariety = num("modeVariety"),
+            lastCruiseUsage = num("cruiseUsage"),
             highlights = json.optJSONArray("highlights")?.let { a ->
                 (0 until a.length()).map { a.getString(it) }
             } ?: emptyList()
@@ -66,7 +72,9 @@ class HpeStore(context: Context) {
         val s = HpeSignals(key, m.lastKm, num("energy"), num("cabin"),
             num("target"), boolean("hvac"), boolean("charging"),
             boolean("parked"), boolean("warning"), m.lastExploration,
-            m.lastRegularity, m.lastInteraction, modelAgeYears = num("modelAgeYears"))
+            m.lastRegularity, m.lastInteraction, modelAgeYears = num("modelAgeYears"),
+            modeVarietyRatio = num("modeVarietySignal") ?: m.lastModeVariety,
+            cruiseUseRatio = num("cruiseUsageSignal") ?: m.lastCruiseUsage)
         val appraisal = HumanPersonalityEngine.appraise(s)
         val affect = HumanPersonalityEngine.affect(appraisal,s)
         HpeState(key, core, m, affect,
