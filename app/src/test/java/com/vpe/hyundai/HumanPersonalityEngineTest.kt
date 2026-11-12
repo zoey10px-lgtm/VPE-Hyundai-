@@ -139,4 +139,42 @@ class HumanPersonalityEngineTest {
         assertEquals(driven,HumanPersonalityEngine.observe(car(km=50000.0),driven))
     }
 
+    @Test fun modeVarietyAndCruiseUseActuallyAffectMbtiAxes() {
+        val base = car(km = 469_297.0)
+        val constantMode = HumanPersonalityEngine.makeCore(
+            base.copy(modeVarietyRatio = 0.0, cruiseUseRatio = 0.0))
+        val variedMode = HumanPersonalityEngine.makeCore(
+            base.copy(modeVarietyRatio = 1.0, cruiseUseRatio = 1.0))
+        assertTrue(variedMode.axes[1] > constantMode.axes[1])
+        assertTrue(variedMode.axes[3] > constantMode.axes[3])
+        assertEquals(constantMode.axes[2], variedMode.axes[2], 0.0)
+        assertTrue(variedMode.confidence > HumanPersonalityEngine.makeCore(base).confidence)
+    }
+
+    @Test fun driverModeCannotChangeIdentityFromUnobservedSinglePoll() {
+        val before = HumanPersonalityEngine.observe(car(km = 469_297.0))
+        val after = HumanPersonalityEngine.observe(car(km = 469_297.0), before)
+        assertEquals(before.core, after.core)
+        assertEquals(0, after.memory.meaningfulEvents)
+    }
+
+    @Test fun newModeEvidenceChangesContinuousAxisWithoutRegeneratingCar() {
+        val baseline = HumanPersonalityEngine.observe(car(km = 469_297.0))
+        val observed = HumanPersonalityEngine.observe(
+            car(km = 469_297.0).copy(modeVarietyRatio = 0.0), baseline)
+        assertTrue(observed.core.axes[1] < baseline.core.axes[1])
+        assertEquals(baseline.key, observed.key)
+        assertEquals(1, observed.memory.meaningfulEvents)
+        assertEquals(observed.core,
+            HumanPersonalityEngine.observe(
+                car(km = 469_297.0).copy(modeVarietyRatio = 0.0), observed).core)
+    }
+
+    @Test fun highMileageDoesNotSaturateAt250k() {
+        val a = HumanPersonalityEngine.makeCore(car(km = 250_000.0))
+        val b = HumanPersonalityEngine.makeCore(car(km = 469_297.0))
+        assertTrue(b.traits[0] > a.traits[0])
+        assertTrue(b.traits[3] > a.traits[3])
+    }
+
 }
