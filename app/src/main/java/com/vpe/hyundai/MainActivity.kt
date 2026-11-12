@@ -69,6 +69,7 @@ class MainActivity : Activity() {
     private var voiceStarting = false
     private var voiceDisplay = "가운데 VPE 오브를 눌러 음성 대화 시작"
     private var voiceOrb: VpeWaveView? = null
+    private var voiceOrbLabel: TextView? = null
     private var voiceHint: TextView? = null
     private var voicePersonaSignature: String? = null
     private var tts: TextToSpeech? = null
@@ -227,6 +228,7 @@ class MainActivity : Activity() {
         liveChatScroll = null
         liveMoodStatus = null
         voiceOrb = null
+        voiceOrbLabel = null
         voiceHint = null
         root = column().apply { setBackgroundColor(cream) }
         val header = row().apply { setPadding(d(24), d(15), d(24), d(12)) }
@@ -298,6 +300,9 @@ class MainActivity : Activity() {
         val header = row()
         header.addView(tag("VPE  /  PERSONALITY ENGINE", Color.argb(175, 255, 255, 255), ink))
         hero.addView(header)
+        // The animated wave remains the background; a separate centered touch target
+        // makes the orb clearly actionable and accessible on Pleos Automotive.
+        val orbPanel = FrameLayout(this).apply { clipChildren = false; clipToPadding = false }
         val wave = VpeWaveView(this).apply {
             mode = when {
                 voiceStarting || connecting -> VpeWaveView.Mode.CONNECTING
@@ -309,21 +314,42 @@ class MainActivity : Activity() {
             affectIntensity = hpe?.expression?.motionIntensity?.toFloat() ?: 0.45f
             valence = hpe?.affect?.valence?.toFloat() ?: 0f
             isClickable = true
-            isFocusable = true
-            contentDescription = if (voiceActive) "VPE 음성 대화 종료" else "VPE 음성 대화 시작"
+            contentDescription = "VPE 음성 대화 영역"
             setOnClickListener { toggleRealtimeVoice() }
         }
         voiceOrb = wave
-        hero.addView(wave, LinearLayout.LayoutParams(-1, d(166)))
+        orbPanel.addView(wave, FrameLayout.LayoutParams(-1, -1))
+        val orbButton = label(orbButtonText(), 15f, white, true).apply {
+            gravity = Gravity.CENTER
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.argb(205, 125, 119, 240), Color.argb(198, 156, 93, 222))
+            ).apply {
+                shape = GradientDrawable.OVAL
+                setStroke(d(2), Color.argb(220, 241, 241, 255))
+            }
+            elevation = d(4).toFloat()
+            isClickable = true
+            isFocusable = true
+            contentDescription = if (voiceActive) "VPE 음성 대화 종료"
+                else if (!hasSession()) "VPE 로그인하고 음성 대화 시작"
+                else "VPE 음성 대화 시작"
+            setOnClickListener { toggleRealtimeVoice() }
+        }
+        voiceOrbLabel = orbButton
+        orbPanel.addView(orbButton, FrameLayout.LayoutParams(d(132), d(132), Gravity.CENTER))
+        hero.addView(orbPanel, LinearLayout.LayoutParams(-1, d(228)))
         val voiceCaption = label(voiceDisplay, 14f, if (voiceActive) teal else violet, true)
             .apply { gravity = Gravity.CENTER }
         voiceHint = voiceCaption
-        hero.addView(gap(8))
+        hero.addView(gap(5))
         hero.addView(voiceCaption)
         hero.addView(label(
-            if (voiceActive) "다시 누르면 마이크가 꺼져요"
-            else "터치하면 한국어 실시간 음성 대화가 시작돼요",
-            12f, secondary).apply { gravity = Gravity.CENTER })
+            when {
+                voiceActive -> "가운데 오브를 다시 누르면 마이크와 대화가 종료돼요"
+                !hasSession() -> "음성 대화는 로그인 후 시작돼요 · 오브를 누르면 로그인 화면으로 이동"
+                else -> "오브를 눌러 한국어 실시간 음성 대화를 시작해요"
+            }, 12f, secondary).apply { gravity = Gravity.CENTER })
         val mainTitle = when {
             voiceActive -> "VPE와 실시간 음성 대화 중"
             connecting -> "당신의 차를 알아가는 중"
@@ -1271,6 +1297,14 @@ class MainActivity : Activity() {
             (energy?.let { " · 에너지 ${it.toInt()}%" } ?: "")
     }
 
+    private fun orbButtonText(): String = when {
+        voiceStarting -> "연결 중…"
+        voiceActive && voiceDisplay.contains("말하는 중") -> "말하는 중"
+        voiceActive -> "듣는 중\n종료하려면 탭"
+        !hasSession() -> "마이크\n로그인 후 시작"
+        else -> "마이크\n눌러서 대화"
+    }
+
     private fun toggleRealtimeVoice() {
         if (voiceActive) {
             stopRealtimeVoice()
@@ -1282,8 +1316,7 @@ class MainActivity : Activity() {
             return
         }
         if (!hasSession()) {
-            Toast.makeText(this, "실시간 GPT 음성 대화는 VPE 로그인 후 사용할 수 있어.",
-                Toast.LENGTH_LONG).show()
+            openAuth()
             return
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
@@ -1392,6 +1425,9 @@ class MainActivity : Activity() {
     private fun updateVoiceDisplay(status: String) {
         voiceDisplay = status
         voiceHint?.text = status
+        voiceOrbLabel?.text = orbButtonText()
+        voiceOrbLabel?.contentDescription = if (voiceActive) "VPE 음성 대화 종료"
+            else "VPE 음성 대화 시작"
         voiceOrb?.mode = when {
             voiceStarting -> VpeWaveView.Mode.CONNECTING
             !voiceActive -> VpeWaveView.Mode.READY
@@ -1416,6 +1452,7 @@ class MainActivity : Activity() {
         realtimeVoice?.release()
         realtimeVoice = null
         voiceDisplay = "가운데 VPE 오브를 눌러 음성 대화 시작"
+        voiceOrbLabel?.text = orbButtonText()
         if (!isFinishing && !isDestroyed && currentTab == "home") render("home")
     }
 
