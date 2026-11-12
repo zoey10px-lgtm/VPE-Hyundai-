@@ -1137,6 +1137,12 @@ class MainActivity : Activity() {
         title.addView(button("🔊 VPE 음성 테스트", false) {
             speakVehicleText("안녕! 나는 VPE야. 이제 차량의 상태가 바뀌면 먼저 이야기할게.", showError = true)
         })
+        title.addView(gap(8))
+        title.addView(button("🧪 GPT 성격 차이 검증", false) { compareCurrentPersona() })
+        title.addView(label(
+            "같은 질문·같은 차량 데이터로, 실제 VPE 성격과 " +
+                "테스트용 반대 성격의 GPT 답변을 비교해요. 로그인 필요 · API 2회 호출.",
+            12f, secondary))
         title.addView(gap(5))
         title.addView(label("음성 출력: " + ttsStatus, 12f, secondary))
         title.addView(label("선제 대화: " + proactiveStatus, 12f, secondary))
@@ -1429,6 +1435,52 @@ class MainActivity : Activity() {
             .put("memory", memory)
             .put("snapshot", snap)
             .put("voice", voiceJson)
+    }
+
+    private fun compareCurrentPersona() {
+        val state = hpe
+        if (state == null || !hasSession()) {
+            Toast.makeText(this, "차량 연결과 VPE 로그인이 필요해.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val scope = activeChatScope
+        val context = aiContext(state)
+        val token = sessionToken()
+        Toast.makeText(this, "실제·대조 성격으로 GPT 응답을 비교하고 있어.", Toast.LENGTH_SHORT).show()
+        Thread {
+            val result = runCatching {
+                VpeAiClient.comparePersona(serverUrl(), token, context)
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed || scope != activeChatScope) return@runOnUiThread
+                result.onSuccess { reply ->
+                    val actual = reply.optString("actualReply")
+                    val contrast = reply.optString("contrastReply")
+                    val actualMbti = reply.optString("actualMbti")
+                    val contrastMbti = reply.optString("contrastMbti")
+                    diagnosticLogs.add("GPT_PERSONA_CONTRAST_OK")
+                    AlertDialog.Builder(this)
+                        .setTitle("GPT 성격 반영 실험")
+                        .setMessage(
+                            "질문: " + reply.optString("controlledQuestion") +
+                            "\n\n[실제 VPE · " + actualMbti + "]\n" + actual +
+                            "\n\n[테스트용 대조 성격 · " + contrastMbti + "]\n" + contrast +
+                            "\n\n두 응답의 말투·문장 길이·호응 방식을 비교해 봐." +
+                            "\n실제 차량 센서값은 같고 성격 점수만 반전했어.")
+                        .setPositiveButton("확인", null)
+                        .show()
+                }.onFailure { error ->
+                    diagnosticLogs.add("GPT_PERSONA_CONTRAST_ERROR: " +
+                        (error.message ?: "REQUEST_FAILED").take(120))
+                    AlertDialog.Builder(this)
+                        .setTitle("GPT 성격 비교 연결 오류")
+                        .setMessage(error.message ?: "요청에 실패했어.")
+                        .setPositiveButton("확인", null)
+                        .show()
+                }
+                if (diagnosticLogs.size > 80) diagnosticLogs.removeAt(0)
+            }
+        }.start()
     }
 
     private fun sendMessage(message: String) {
