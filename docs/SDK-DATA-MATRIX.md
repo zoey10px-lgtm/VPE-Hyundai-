@@ -1,4 +1,4 @@
-# VPE Pleos SDK input matrix · v1.1.3 (2026-11-12)
+# VPE Pleos SDK input matrix · v1.1.4 (2026-11-12)
 
 The following are **typed getters found in the actual Vehicle 2.3.2 AAR**; only rows marked connected are called by VPE, with individual failure logs. Successful compilation only proves API compatibility; each new getter still requires a Virtual Console reception test.
 
@@ -34,3 +34,7 @@ The five new getters are safe read-only requests behind per-domain failure repor
 - `app/src/main/java/com/vpe/hyundai/MainActivity.kt`: automatic refresh, HPE context, diagnostics, proactive speech
 - `app/src/main/java/com/vpe/hyundai/HumanPersonalityEngine.kt`: long-term weights and transient affect
 - `docs/HPE-ARCHITECTURE.md`: exact weighting, trust boundaries and test method
+
+## Energy source reliability correction (v1.1.4)
+
+For an EV, battery SOC takes priority over fuel percent when both SDK getters return data. Previously, `fuelPercent ?: evBatteryLevel` could mask a real Virtual Console battery change. The app now uses `evBatteryLevel ?: fuelPercent` with range validation, adds `energySource` to GPT context, and shows the chosen source in Diagnostics. Charging switch ON indicates the switch state only, not confirmed energy delivery.

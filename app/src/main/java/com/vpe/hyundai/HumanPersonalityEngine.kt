@@ -235,7 +235,7 @@ object HumanPersonalityEngine {
                 else "으, 좀 더워! 실내가 시원해지면 좋겠어."
             "cold" -> if (analytical) "실내가 목표 온도보다 낮아. 난방 상태를 확인해 보자."
                 else "으으, 추워! 따뜻해지면 좋겠어."
-            "charging" -> "충전하고 있으니 조금 안심이 돼."
+            "charging" -> "충전 스위치가 켜졌어. 실제 충전이 시작됐는지 확인해 보자."
             else -> if (play >= .56) "오늘은 어떤 이야기를 해볼까? 궁금해!"
                 else "오늘도 편안하게 함께하자."
         }
@@ -294,7 +294,7 @@ object HumanPersonalityEngine {
             if (s.energyPercent != null) add("에너지: 실제 관측값")
             if (s.actualCabinC != null) add("실내 현재온도: 수신값")
             if (s.targetCabinC != null) add("목표 온도: 설정값")
-            if (s.charging != null) add("충전 상태: 수신값")
+            if (s.charging != null) add("충전 스위치 상태: 수신값 (실제 충전 전류 아님)")
             if (s.parked != null) add("정차 상태: 수신값")
             if (s.explorationRatio == null) add("신규 방문 이력: 미연결")
             else add("신규 방문 비율: 장기 패턴 집계 입력")

@@ -27,7 +27,20 @@ data class VehicleReadings(
     val fanSpeedLevel: Int? = null
 ) {
     fun hasMeasuredDrivingData(): Boolean = odometerKm != null
-    fun energyPercent(): Double? = fuelPercent ?: evBatteryLevel
+    /**
+     * Pleos EV uses battery SOC as the primary energy input. Fuel is a fallback
+     * for vehicles without a valid EV SOC; two different energy types must not
+     * silently overwrite each other in the persona.
+     */
+    fun energyPercent(): Double? =
+        evBatteryLevel?.takeIf { it.isFinite() && it in 0.0..100.0 }
+            ?: fuelPercent?.takeIf { it.isFinite() && it in 0.0..100.0 }
+
+    fun energySource(): String? = when {
+        evBatteryLevel?.let { it.isFinite() && it in 0.0..100.0 } == true -> "EV_BATTERY_SOC"
+        fuelPercent?.let { it.isFinite() && it in 0.0..100.0 } == true -> "FUEL_PERCENT"
+        else -> null
+    }
     /** A callback may contain only one field; null means no new reading. */
     fun mergeObserved(n: VehicleReadings): VehicleReadings = copy(
         odometerKm = n.odometerKm ?: odometerKm,

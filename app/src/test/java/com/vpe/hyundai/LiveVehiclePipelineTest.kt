@@ -29,6 +29,18 @@ class LiveVehiclePipelineTest {
         assertEquals(4,changed.fanSpeedLevel)
     }
 
+    @Test fun evSocTakesPriorityOverFuelToAvoidMaskingConsoleBatteryChanges() {
+        val car = VehicleReadings(fuelPercent=80.0,evBatteryLevel=15.0)
+        assertEquals(15.0,car.energyPercent()!!,0.0)
+        assertEquals("EV_BATTERY_SOC",car.energySource())
+        val second = car.mergeObserved(VehicleReadings(evBatteryLevel=10.0))
+        assertEquals(10.0,second.energyPercent()!!,0.0)
+        assertEquals(80.0,second.fuelPercent!!,0.0)
+        val fallback = VehicleReadings(fuelPercent=35.0)
+        assertEquals(35.0,fallback.energyPercent()!!,0.0)
+        assertEquals("FUEL_PERCENT",fallback.energySource())
+    }
+
     @Test fun absentFieldsDoNotEraseMeasuredValuesAndFalseIsKept() {
         val initial = VehicleReadings(odometerKm=12.0,charging=true,evBatteryLevel=40.0)
         val next = initial.mergeObserved(VehicleReadings(charging=false))
