@@ -89,6 +89,11 @@ object VpeAiClient {
             URLEncoder.encode(vehicleKey, "UTF-8"), token)
             .optJSONArray("messages") ?: JSONArray()
 
+    /** Two real GPT calls with same question/data but opposite style coefficients. */
+    fun comparePersona(baseUrl: String, token: String, context: JSONObject): JSONObject =
+        request(baseUrl, "/api/persona-compare", token,
+            JSONObject().put("context", context))
+
     /** An authenticated vehicle-initiated turn (no fake user message). */
     fun proactiveAccount(
         baseUrl: String,
