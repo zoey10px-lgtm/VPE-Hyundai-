@@ -36,6 +36,27 @@ class VpeRealtimeVoice(private val listener: Listener) {
     private val http = OkHttpClient.Builder().pingInterval(15, TimeUnit.SECONDS).build()
     private val audioQueue = LinkedBlockingQueue<ByteArray>(64)
     private val transcript = StringBuilder()
+    // In WebSocket mode playback lives on Android, so interruptions must
+    // truncate audio the user did not hear from the model's conversation.
+    private var outputItemId: String? = null
+    private var outputContentIndex = 0
+    private var outputFirstFrame = 0L
+    private var outputReceivedBytes = 0L
+
+    private fun playedFrames(): Long =
+        speaker?.playbackHeadPosition?.toLong()?.and(0xffffffffL) ?: 0L
+
+    private fun truncateInterruptedSpeech() {
+        val id=outputItemId ?: return
+        val heardFrames=(playedFrames()-outputFirstFrame).coerceAtLeast(0L)
+        val heardMs=(heardFrames/24L).coerceAtMost(outputReceivedBytes/48L)
+        socket?.send(JSONObject().put("type","conversation.item.truncate")
+            .put("item_id",id).put("content_index",outputContentIndex)
+            .put("audio_end_ms",heardMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+            .toString())
+        outputItemId=null
+        outputReceivedBytes=0L
+    }
     @Volatile var active = false
         private set
     @Volatile private var ready = false
@@ -98,6 +119,7 @@ class VpeRealtimeVoice(private val listener: Listener) {
                 }
             }
             "input_audio_buffer.speech_started" -> {
+                truncateInterruptedSpeech()
                 audioQueue.clear()
                 runCatching {
                     speaker?.pause()
@@ -107,6 +129,10 @@ class VpeRealtimeVoice(private val listener: Listener) {
                 listener.onStatus("목소리 듣는 중…")
             }
             "input_audio_buffer.speech_stopped" -> listener.onStatus("대답을 생각 중…")
+            "conversation.item.input_audio_transcription.delta" -> {
+                val partial=json.optString("delta").trim()
+                if (partial.isNotEmpty()) listener.onStatus("듣는 중: " + partial.take(90))
+            }
             "conversation.item.input_audio_transcription.completed" -> {
                 json.optString("transcript").trim().takeIf { it.isNotEmpty() }
                     ?.let { listener.onUserText(it) }
@@ -115,7 +141,19 @@ class VpeRealtimeVoice(private val listener: Listener) {
                 val delta = json.optString("delta")
                 if (delta.isNotEmpty()) {
                     runCatching { Base64.decode(delta, Base64.DEFAULT) }
-                        .getOrNull()?.let { if (it.isNotEmpty()) audioQueue.offer(it) }
+                        .getOrNull()?.let { pcm ->
+                            if (pcm.isNotEmpty()) {
+                                val item=json.optString("item_id")
+                                if (item.isNotBlank() && outputItemId!=item) {
+                                    outputItemId=item
+                                    outputContentIndex=json.optInt("content_index",0)
+                                    outputFirstFrame=playedFrames()
+                                    outputReceivedBytes=0L
+                                }
+                                outputReceivedBytes+=pcm.size
+                                audioQueue.offer(pcm)
+                            }
+                        }
                     listener.onStatus("VPE가 말하는 중…")
                 }
             }
@@ -173,11 +211,18 @@ class VpeRealtimeVoice(private val listener: Listener) {
         val inputMin = AudioRecord.getMinBufferSize(
             24_000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         require(inputMin > 0) { "에뮬레이터 마이크가 24kHz 입력을 지원하지 않아." }
-        val input = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION, 24_000,
+        fun recorder(source: Int): AudioRecord = AudioRecord(
+            source, 24_000,
             AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
             max(inputMin * 2, 9_600))
-        require(input.state == AudioRecord.STATE_INITIALIZED) { "마이크 초기화에 실패했어." }
+        var input=recorder(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+        if (input.state != AudioRecord.STATE_INITIALIZED) {
+            input.release()
+            // Automotive emulator images sometimes expose MIC but not
+            // VOICE_COMMUNICATION; try the plain input device as fallback.
+            input=recorder(MediaRecorder.AudioSource.MIC)
+        }
+        require(input.state == AudioRecord.STATE_INITIALIZED) { "Pleos 마이크 초기화 실패" }
         microphone = input
         microphoneThread = Thread {
             val echo = runCatching {
@@ -248,6 +293,8 @@ class VpeRealtimeVoice(private val listener: Listener) {
         socket?.close(1000, "VPE voice off")
         socket = null
         audioQueue.clear()
+        outputItemId=null
+        outputReceivedBytes=0L
         runCatching { microphone?.stop() }
         speakerThread?.interrupt()
     }
