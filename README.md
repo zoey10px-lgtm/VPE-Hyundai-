@@ -2,7 +2,7 @@
 
 **Latest: v1.1.3 — verified SDK input expansion + live telemetry, proactive speech, Android TTS**
 
-- Seven additional typed, read-only Pleos getters for range, battery capacity, cruise state/target, fan, occupancy and ambient brightness are logged and exposed as GPT context, pending real AVD reception; see [data matrix](docs/SDK-DATA-MATRIX.md).
+- Five additional typed, read-only Pleos getters for range, battery capacity, cruise state/target, and HVAC fan speed are logged and exposed as GPT context, pending real AVD reception; Seat/Light are excluded until their CAR_SEATS/CAR_LIGHTS permissions are approved; see [data matrix](docs/SDK-DATA-MATRIX.md).
 - Real SDK readings merge automatically; event-based speech covers low SOC, thermal discomfort, charging switch, and washer warning, with debounce and priority.
 - Car-specific TTS rate and pitch are applied if an Android Korean TTS engine is available. Pleos AVD audio output has not been verified on the user's host.
 - HPE v3 reduces unobserved VIN-seed influence and explicitly weights newly available long-run evidence, persistent vehicle state and deduplication. See [architecture audit](docs/HPE-ARCHITECTURE.md).

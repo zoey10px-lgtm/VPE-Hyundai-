@@ -1,6 +1,6 @@
 # VPE Pleos SDK input matrix · v1.1.3 (2026-11-12)
 
-The following are **typed getters found in the actual Vehicle 2.3.2 AAR** and called by VPE, with individual failure logs. Successful compilation only proves API compatibility; each new getter still requires a Virtual Console reception test.
+The following are **typed getters found in the actual Vehicle 2.3.2 AAR**; only rows marked connected are called by VPE, with individual failure logs. Successful compilation only proves API compatibility; each new getter still requires a Virtual Console reception test.
 
 | Input | SDK method | VPE consumer | AVD evidence |
 | --- | --- | --- | --- |
@@ -18,14 +18,14 @@ The following are **typed getters found in the actual Vehicle 2.3.2 AAR** and ca
 | **Cruise state** | DrivingMode.getCruiseControlState | Diagnostics and GPT context | **New, unverified** |
 | **Cruise target speed** | DrivingMode.getCruiseControlTargetSpeed | Diagnostics and GPT context, **not actual speed** | **New, unverified** |
 | **HVAC fan speed** | HVAC.getHvacFanSpeed(driverSeat) | Diagnostics and GPT context | **New, unverified** |
-| **Driver seat occupied** | Seat.getCurrentSeatOccupancy(driverSeat) | Diagnostics and GPT context | **New, unverified** |
-| **Ambient light brightness** | Light.getAmbientLightBrightness(driverSeat) | Diagnostics and GPT context | **New, unverified** |
+| Driver seat occupied | Seat.getCurrentSeatOccupancy(driverSeat) | **Not connected**; requires approved CAR_SEATS permission | Pending permission |
+| Ambient light brightness | Light.getAmbientLightBrightness(driverSeat) | **Not connected**; requires approved CAR_LIGHTS permission | Pending permission |
 
 ## Why not feed all values into the HPE long-term core?
 
 Vehicle *state* and user *preference* are different. Current battery SOC, open doors, cruise target, and cabin fan are **situational**. Long-term traits need repeatable trip/session summaries, a stable vehicle key, signal availability, and unit validation. The HPE's current verified long-term inputs are odometer and VIN-derived estimated model age. Exploration, regularity and social ratios are still absent; engine neutral values must never masquerade as real measurements.
 
-The seven new getters are safe read-only requests behind per-domain failure reporting, retried by the app's eight-second fallback refresh if supported. Record the SDK `*_OK`, `*_ERROR`, or `EMPTY` diagnostics after changing each corresponding Virtual Console control. No direct actual-speed or road-limit getter has been integrated, so speeding detection is not claimed.
+The five new getters are safe read-only requests behind per-domain failure reporting, retried by the app's eight-second fallback refresh if supported. Record the SDK `*_OK`, `*_ERROR`, or `EMPTY` diagnostics after changing each corresponding Virtual Console control. No direct actual-speed or road-limit getter has been integrated, so speeding detection is not claimed.
 
 ## Tuning and debugging
 

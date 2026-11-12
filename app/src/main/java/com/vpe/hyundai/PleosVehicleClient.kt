@@ -439,24 +439,8 @@ class PleosVehicleClient(context: Context) {
         } catch (e: Exception) {
             report("FAN_SPEED_ERROR: " + safeMessage(e), null)
         }
-        try {
-            vehicle.getSeat().getCurrentSeatOccupancy(driverSeat,
-                onComplete = { v -> report("SEAT_OCCUPANCY: " + (v?.toString() ?: "EMPTY"),
-                    v?.let { VehicleReadings(driverOccupied = it) }) },
-                onFailed = { e -> report("SEAT_OCCUPANCY_ERROR: " + safeMessage(e), null) }
-            )
-        } catch (e: Exception) {
-            report("SEAT_OCCUPANCY_ERROR: " + safeMessage(e), null)
-        }
-        try {
-            vehicle.getLight().getAmbientLightBrightness(driverSeat,
-                onComplete = { v -> report("AMBIENT_BRIGHTNESS: " + (v?.toString() ?: "EMPTY"),
-                    v?.let { VehicleReadings(ambientBrightness = it) }) },
-                onFailed = { e -> report("AMBIENT_BRIGHTNESS_ERROR: " + safeMessage(e), null) }
-            )
-        } catch (e: Exception) {
-            report("AMBIENT_BRIGHTNESS_ERROR: " + safeMessage(e), null)
-        }
+        // Seat and Light domains require additional CAR_SEATS/CAR_LIGHTS
+        // access approval and permissions; do not query them in this build.
 
         // VIN is preferred. If unavailable, try the SDK's verified CRN getter.
         // Neither raw identifier is written to logs or storage.

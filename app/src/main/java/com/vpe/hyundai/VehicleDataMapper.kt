@@ -24,9 +24,7 @@ data class VehicleReadings(
     val batteryCapacityRaw: String? = null,
     val cruiseControlState: String? = null,
     val cruiseTargetSpeedRaw: String? = null,
-    val fanSpeedLevel: Int? = null,
-    val driverOccupied: Boolean? = null,
-    val ambientBrightness: Int? = null
+    val fanSpeedLevel: Int? = null
 ) {
     fun hasMeasuredDrivingData(): Boolean = odometerKm != null
     fun energyPercent(): Double? = fuelPercent ?: evBatteryLevel
@@ -53,9 +51,7 @@ data class VehicleReadings(
         batteryCapacityRaw = n.batteryCapacityRaw ?: batteryCapacityRaw,
         cruiseControlState = n.cruiseControlState ?: cruiseControlState,
         cruiseTargetSpeedRaw = n.cruiseTargetSpeedRaw ?: cruiseTargetSpeedRaw,
-        fanSpeedLevel = n.fanSpeedLevel ?: fanSpeedLevel,
-        driverOccupied = n.driverOccupied ?: driverOccupied,
-        ambientBrightness = n.ambientBrightness ?: ambientBrightness
+        fanSpeedLevel = n.fanSpeedLevel ?: fanSpeedLevel
     )
 }
 

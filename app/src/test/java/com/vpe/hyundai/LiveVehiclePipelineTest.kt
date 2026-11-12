@@ -21,11 +21,10 @@ class LiveVehiclePipelineTest {
     }
 
     @Test fun newConsoleFieldsMergeWithoutDestroyingKnownMeasurements() {
-        val initial = VehicleReadings(odometerKm=800.0,driverOccupied=true)
+        val initial = VehicleReadings(odometerKm=800.0,fanSpeedLevel=3)
         val changed = initial.mergeObserved(VehicleReadings(
-            cruiseTargetSpeedRaw="13.8889",fanSpeedLevel=4,driverOccupied=false))
+            cruiseTargetSpeedRaw="13.8889",fanSpeedLevel=4))
         assertEquals(800.0,changed.odometerKm!!,0.0)
-        assertEquals(false,changed.driverOccupied)
         assertEquals("13.8889",changed.cruiseTargetSpeedRaw)
         assertEquals(4,changed.fanSpeedLevel)
     }
