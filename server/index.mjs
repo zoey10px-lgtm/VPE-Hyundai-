@@ -92,7 +92,9 @@ MBTI E/I는 외향적/내향적 대화 리듬, N/S는 상상/현실 중심, T/F�
 
 async function callModel(message, context, history, options = {}) {
   if (!OPENAI_KEY) throw new Error("OPENAI_NOT_CONFIGURED");
-  const identity = traitInstructions(context)+"\n"+vehiclePersonaProfile(context).instructions;
+  const identity = traitInstructions(context) +
+    (Array.isArray(context?.axes) && context.axes.length===4
+      ? "\n"+vehiclePersonaProfile(context).instructions : "");
   const contextStr=JSON.stringify(context).slice(0,11000);
   const proactive=validProactiveKind(options?.proactiveKind);
   const input=[
