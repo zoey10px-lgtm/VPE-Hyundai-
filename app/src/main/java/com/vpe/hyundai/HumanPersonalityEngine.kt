@@ -310,7 +310,7 @@ object HumanPersonalityEngine {
             traits = initialCore.traits.zip(candidate.traits) { stable, observed ->
                 clamp((1.0-weight) * stable + weight * observed)
             },
-            confidence = max(initialCore.confidence, candidate.confidence)
+            confidence = candidate.confidence
         )
         val a = appraise(s)
         val mood = affect(a, s)

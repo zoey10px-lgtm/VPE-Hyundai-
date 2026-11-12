@@ -1,4 +1,4 @@
-# VPE Pleos SDK input matrix · v1.1.4 (2026-11-12)
+# VPE Pleos SDK input matrix · v1.2.0 (2026-11-12)
 
 The following are **typed getters found in the actual Vehicle 2.3.2 AAR**; only rows marked connected are called by VPE, with individual failure logs. Successful compilation only proves API compatibility; each new getter still requires a Virtual Console reception test.
 
@@ -38,3 +38,11 @@ The five new getters are safe read-only requests behind per-domain failure repor
 ## Energy source reliability correction (v1.1.4)
 
 For an EV, battery SOC takes priority over fuel percent when both SDK getters return data. Previously, `fuelPercent ?: evBatteryLevel` could mask a real Virtual Console battery change. The app now uses `evBatteryLevel ?: fuelPercent` with range validation, adds `energySource` to GPT context, and shows the chosen source in Diagnostics. Charging switch ON indicates the switch state only, not confirmed energy delivery.
+
+## v1.2.0 cumulative HPE observations
+
+The app now persists a per-vehicle aggregate of **actual** driving mode and cruise-state observations. A sample is counted only during an 8-second live polling tick and only if a recent typed SDK response exists. After four meaningful samples, mode diversity `C((1 - highestModeCount / totalModeSamples) * 1.5)` influences the N/S axis; cruise usage `engagedSamples / recognizedSamples` influences the J/P axis. Only explicit cruise ON/ACTIVE/ENGAGED/RUNNING/OFF/STANDBY/etc. strings are interpreted; unknown responses do not count. Three actual user-to-VPE messages enable `C(interactionCount/12)` on the E/I axis. These are **engineered fictional character mappings**, not validated measurements of the user's personal MBTI. Real location exploration remains disconnected.
+
+The current mode/fan/range/cruise values also appear under the home screen in a separate **Pleos 데이터 · 페르소나 영향** list, with explicit HPE/GPT-only labels. Energy, climate and charging remain temporary affect inputs and do not immediately change the long-term MBTI. Missing values stay unavailable.
+
+Proactive events suppressed by the 8-second cooldown are retried on the next live ticker, including if the last SDK measurements are unchanged. The account-based GPT first turn uses POST `/api/proactive`. The `/api/persona-compare` endpoint is solely an opt-in test comparing two persona contexts with identical sensor facts; it stores no conversation.

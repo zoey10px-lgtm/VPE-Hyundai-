@@ -1,6 +1,6 @@
 # VPE Hyundai · Vehicle Persona Engine
 
-**Latest: v1.1.3 — verified SDK input expansion + live telemetry, proactive speech, Android TTS**
+**Latest: v1.2.0 — observed vehicle usage pattern learning + reliable proactive event retries + GPT style contrast tests**
 
 - Five additional typed, read-only Pleos getters for range, battery capacity, cruise state/target, and HVAC fan speed are logged and exposed as GPT context, pending real AVD reception; Seat/Light are excluded until their CAR_SEATS/CAR_LIGHTS permissions are approved; see [data matrix](docs/SDK-DATA-MATRIX.md).
 - Real SDK readings merge automatically; event-based speech covers low SOC, thermal discomfort, charging switch, and washer warning, with debounce and priority.
@@ -156,3 +156,14 @@ The navigation hierarchy, separate conversation and minimal diagnostics follow c
 - Validate real Odometer / Fuel / EV / VIN values in a **Pleos Connect emulator**, including optional/missing-data and permission errors.
 - Add trip and maintenance source adapters to replace neutral personality inputs.
 - Connect an LLM for free-form responses and a voice engine for real audio/STT. The current waveform is a *visual animation only*, not synchronized to microphone or synthesized speech.
+
+## VPE v1.2.0 — changes validated through tests
+
+- **Observed usage evidence:** time-separated Pleos driving-mode samples now form a measured *mode diversity* ratio (after >=4 samples); cruise-state samples form a measured engagement ratio (after >=4 recognized samples). Conversation counts from the real VPE chat form an interaction ratio (after >=3 user messages). These aggregates are vehicle-keyed and persisted in Android SharedPreferences; missing/unrecognized values stay null. No real route novelty, actual speed, steering, driver psychological traits or verified charging current is assumed.
+- **HPE core:** observed mode variety affects continuous N/S at engineering coefficient 0.42; cruise use affects J/P at 0.36; real user conversation count affects E/I with preexisting 0.28 coefficient. T/F remains a deterministic fictional style seed. The 7-way evidence-coverage fraction updates only for actual observations. A long-term MBTI letter changes only if the continuous axis crosses 0.5 after stable evidence and smoothing.
+- **High odometer fix:** replaces previous 250,000-km saturation with a bounded log experience scale up to 1,000,000km. Old records persist; new measurements adapt according to the HPE learning rule.
+- **Proactive reliability:** 8s polling tick re-evaluates suppressed vehicle prompts even if sensor values remain stable. Previously, a greeting followed closely by a temperature change could suppress that event permanently.
+- **True proactive GPT:** event-specific authenticated API endpoint generates a first-person greeting or grounded short prompt without inventing a user turn. If OpenAI fails, the built-in event text remains.
+- **Testable GPT identity fidelity:** chat button **🧪 GPT 성격 차이 검증** performs 2 explicit model calls, keeping the same real vehicle state and question while reversing 7 HPE traits/4 axes for a labeled *test-only counterfactual*. No history or HPE state is overwritten. These two generated outputs let users judge whether actual word choice, response energy and empathy differ. It does not itself establish empirical personality-model validity.
+- **Visible input contribution:** home screen shows real values, immediate mood scores, cumulative mode/cruise/interaction stats, each field's current role, plus individual continuous MBTI axes in the report. Diagnostic view still contains raw SDK reports.
+- Android standard UI smoke and JVM unit tests cannot prove real Pleos Vehicle Service input or actual GPT response. Recheck the official Automotive emulator and the latest deployed Render service.

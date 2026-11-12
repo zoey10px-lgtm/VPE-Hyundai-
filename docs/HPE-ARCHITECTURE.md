@@ -1,4 +1,4 @@
-# VPE Human Personality Engine (HPE) 1.1.2 · verified code and weight audit
+# VPE Human Personality Engine (HPE) v4 / app v1.2.0 · source-code weight audit
 
 > Vehicle-persona engineering document; implements psychological concepts as **design analogies**, not as scientifically measured personalities. No medical/psychometric diagnosis is made from vehicle signals.
 
@@ -121,3 +121,15 @@ Run `gradle testDebugUnitTest assembleDebug` or check GitHub Actions:
 ## Explicit next-phase boundaries
 
 Real geographic novelty requires FusedLocation/NaviHelper integration and appropriate permissions. Maintenance history requires an authorized maintenance data source. Android TTS and the LLM are independent adapters; the HPE algorithm stays deterministic. Actual Pleos microphone/speaker integration requires emulator testing. Additional Console properties do **not** imply typed SDK access, and unsupported sources must not be silently simulated.
+
+## Current v1.2.0 code extensions (supersedes v1.1.2 coefficient notes above)
+
+- HPE version **4** adds **modeVarietyRatio**, **cruiseUseRatio**, and genuine VPE chat **interactionRatio** as optional, persistent, per-vehicle observations. Car mode and cruise mode are polled no more often than every 8 seconds when their SDK values are fresh. Four samples are required for the first two ratios; at least three user messages for the latter.
+- N/S axis candidate: previous base + `0.36*(geographicExploration-.5)` if verified + **`0.42*(observedModeVariety-.5)`** if the mode variety ratio has qualified. Mode variety is **not labeled as GPS exploration**.
+- J/P candidate: previous base + `0.32*(routeRegularity-.5)` if independently observed + **`0.36*(cruiseUseRatio-.5)`** after sufficient SDK readings.
+- E/I candidate remains base + `0.28*(actualInteractionRatio-.5)` after >=3 VPE user messages, with ratio `clamp(actualMessages/12)`. T/F is still seed only.
+- Previous mileage experience factor `clamp(km/250000)` **is replaced** with `clamp(ln(1+km/50000)/ln(1+1000000/50000))`. Vehicles over 250,000 km therefore do not receive identical experience saturation.
+- Evidence coverage divides available inputs **by 7**: odometer, model age, geographic exploration, route regularity, interaction, observed mode variety, observed cruise use. It counts availability, not the validation of a personality theory.
+- First evidence adaptation 35%, meaningful pattern >=5p adaptation 12%, 100-km event adaptation 3%; repeated unchanged input 0%. The existing HPE per-vehicle store is backward-readable.
+- A periodic live tick re-evaluates deferred proactive events after 8s even when the SDK state remains unchanged. This fixes the missed climate event after a greeting.
+- GPT production responses are instructed by the HPE core; the opt-in **🧪 GPT 성격 차이 검증** comparison uses the exact same real vehicle facts and question, changes only HPE personality traits/axes for a test-only opposite personality, and never overwrites identity/history. Observe the actual resulting text; no statistical psychometric validity is claimed.
