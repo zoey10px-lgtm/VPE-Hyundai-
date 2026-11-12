@@ -74,6 +74,7 @@ class MainActivity : Activity() {
     private var voiceHint: TextView? = null
     private var voiceSaveHint: TextView? = null
     private var voiceSaveStatus = "음성 대화 자막은 로컬에 먼저 저장하고 서버에 동기화해요"
+    private var voiceCharacterDescription = "HPE 성격을 음색과 말투에 연결해요"
     private var voicePersonaSignature: String? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
@@ -358,6 +359,9 @@ class MainActivity : Activity() {
         voiceSaveHint = label(voiceSaveStatus, 12f, teal).apply { gravity = Gravity.CENTER }
         hero.addView(gap(5))
         hero.addView(voiceSaveHint!!)
+        hero.addView(gap(6))
+        hero.addView(label(voiceCharacterDescription, 13f, violet, true)
+            .apply { gravity = Gravity.CENTER })
         val mainTitle = when {
             voiceActive -> "VPE와 실시간 음성 대화 중"
             connecting -> "당신의 차를 알아가는 중"
@@ -1401,7 +1405,17 @@ class MainActivity : Activity() {
                 secret.onSuccess { credential ->
                     val temp = credential.optString("token")
                     val model = credential.optString("model")
-                    if (temp.isBlank() || model.isBlank()) {
+                    val personaInstructions = credential.optString("personaInstructions")
+                    val selectedVoice = credential.optString("voiceName")
+                    val voiceType = credential.optString("voicePresentation")
+                    val voiceStyle = credential.optString("personaStyle")
+                    val speechSpeed = credential.optDouble("speechSpeed", 1.0)
+                    voiceCharacterDescription = "목소리: " + voiceType + " · " +
+                        selectedVoice + " · " + speechSpeed + "배속" +
+                        " · 성격: " + voiceStyle
+                    diagnosticLogs.add("HPE_REALTIME_VOICE: " + voiceCharacterDescription)
+                    if (diagnosticLogs.size > 80) diagnosticLogs.removeAt(0)
+                    if (temp.isBlank() || model.isBlank() || personaInstructions.isBlank()) {
                         stopRealtimeVoice()
                         Toast.makeText(this, "임시 음성 토큰이 비어 있어.", Toast.LENGTH_LONG).show()
                         return@onSuccess
@@ -1438,6 +1452,12 @@ class MainActivity : Activity() {
                                 else updateVoiceDisplay("VPE: " + text.take(76))
                             }
                         }
+                        override fun onDiagnostic(event: String) {
+                            runOnUiThread {
+                                diagnosticLogs.add("VOICE_" + event.take(200))
+                                if (diagnosticLogs.size > 80) diagnosticLogs.removeAt(0)
+                            }
+                        }
                         override fun onEnded(reason: String) {
                             runOnUiThread {
                                 if (!voiceActive) return@runOnUiThread
@@ -1447,7 +1467,7 @@ class MainActivity : Activity() {
                         }
                     })
                     realtimeVoice = session
-                    runCatching { session.start(temp, model) }.onFailure { e ->
+                    runCatching { session.start(temp, model, personaInstructions) }.onFailure { e ->
                         stopRealtimeVoice()
                         Toast.makeText(this, "음성 연결 실패: " + e.message,
                             Toast.LENGTH_LONG).show()
