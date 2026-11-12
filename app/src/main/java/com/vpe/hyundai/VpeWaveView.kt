@@ -19,7 +19,7 @@ import kotlin.math.sin
  * This is an ambient animation, not microphone level analysis or synthesized audio.
  */
 class VpeWaveView(context: Context) : View(context) {
-    enum class Mode { IDLE, CONNECTING, READY, ERROR }
+    enum class Mode { IDLE, CONNECTING, READY, LISTENING, SPEAKING, ERROR }
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG)
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private var phase = 0f
@@ -44,7 +44,7 @@ class VpeWaveView(context: Context) : View(context) {
 
     init {
         setLayerType(LAYER_TYPE_SOFTWARE, null)
-        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -62,6 +62,8 @@ class VpeWaveView(context: Context) : View(context) {
         val radius = minOf(width * 0.32f, height * 0.41f)
         val colorOne = when (mode) {
             Mode.ERROR -> Color.rgb(254, 167, 154)
+            Mode.LISTENING -> Color.rgb(75, 226, 195)
+            Mode.SPEAKING -> Color.rgb(188, 114, 253)
             Mode.READY -> when {
                 valence < -.20f -> Color.rgb(255, 185, 159)
                 valence > .20f -> Color.rgb(105, 226, 194)
@@ -100,6 +102,8 @@ class VpeWaveView(context: Context) : View(context) {
         )
         val strength = when (mode) {
             Mode.CONNECTING -> 0.92f
+            Mode.LISTENING -> 0.72f
+            Mode.SPEAKING -> 1.0f
             Mode.READY -> 0.33f + 0.55f * affectIntensity
             Mode.ERROR -> 0.19f
             Mode.IDLE -> 0.48f
