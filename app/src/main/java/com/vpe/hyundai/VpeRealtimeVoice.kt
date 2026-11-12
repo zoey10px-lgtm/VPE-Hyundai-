@@ -17,6 +17,7 @@ import okio.ByteString
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
 
@@ -35,9 +36,10 @@ class VpeRealtimeVoice(private val listener: Listener) {
     }
 
     private val http = OkHttpClient.Builder().pingInterval(15, TimeUnit.SECONDS).build()
-    // The Realtime server can send audio faster than the Pleos speaker plays.
-    // Buffer several complete utterances; never silently discard PCM chunks.
-    private val audioQueue = LinkedBlockingQueue<ByteArray>(320)
+    // Realtime sends audio faster than playback. Keep each generated PCM chunk.
+    // A completed response is small relative to emulator memory; no silent drops.
+    private val audioQueue = LinkedBlockingQueue<ByteArray>()
+    private val interruptEpoch = AtomicInteger(0)
     private val transcript = StringBuilder()
     private var stablePersonaInstructions = ""
     // In WebSocket mode playback lives on Android, so interruptions must
@@ -124,6 +126,7 @@ class VpeRealtimeVoice(private val listener: Listener) {
                 }
             }
             "input_audio_buffer.speech_started" -> {
+                interruptEpoch.incrementAndGet()
                 if (outputItemId != null || audioQueue.isNotEmpty()) {
                     listener.onDiagnostic("AUDIO_INTERRUPTED: VAD_STARTED; queued=" + audioQueue.size)
                 }
@@ -159,8 +162,7 @@ class VpeRealtimeVoice(private val listener: Listener) {
                                     outputReceivedBytes=0L
                                 }
                                 outputReceivedBytes+=pcm.size
-                                if (!audioQueue.offer(pcm))
-                                    listener.onDiagnostic("AUDIO_QUEUE_OVERFLOW: chunk=" + pcm.size)
+                                audioQueue.offer(pcm)
                             }
                         }
                     listener.onStatus("VPE가 말하는 중…")
@@ -223,9 +225,25 @@ class VpeRealtimeVoice(private val listener: Listener) {
             try {
                 while (active && !Thread.currentThread().isInterrupted) {
                     val pcm = audioQueue.poll(250, TimeUnit.MILLISECONDS) ?: continue
-                    if (active) output.write(pcm, 0, pcm.size)
+                    val epoch = interruptEpoch.get()
+                    var offset = 0
+                    // Android may accept only part of one PCM chunk. Never
+                    // mistake a partial write for a fully played response.
+                    while (active && offset < pcm.size && epoch == interruptEpoch.get()) {
+                        val size = output.write(pcm, offset, pcm.size - offset,
+                            AudioTrack.WRITE_BLOCKING)
+                        if (size <= 0) {
+                            if (active && epoch == interruptEpoch.get())
+                                listener.onDiagnostic("AUDIO_TRACK_WRITE_ERROR: " + size)
+                            break
+                        }
+                        offset += size
+                    }
                 }
             } catch (_: InterruptedException) {
+            } catch (error: Exception) {
+                if (active) listener.onDiagnostic("AUDIO_TRACK_ERROR: " +
+                    (error.message ?: error.javaClass.simpleName).take(100))
             } finally {
                 runCatching { output.stop() }
                 output.release()
@@ -321,6 +339,7 @@ class VpeRealtimeVoice(private val listener: Listener) {
         audioQueue.clear()
         outputItemId=null
         outputReceivedBytes=0L
+        interruptEpoch.incrementAndGet()
         runCatching { microphone?.stop() }
         speakerThread?.interrupt()
     }
