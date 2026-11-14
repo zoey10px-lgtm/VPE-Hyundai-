@@ -96,5 +96,5 @@ export function makePlan(profile,context={},semantic={},now=Date.now()){
  const maxSentences=parked?(detailed?10:6):(detailed?4:3);
  return {traits:z,values:values(z),relationship:R,state:{hunger,cold,heat,fatigue,excitement},scores,
   primary,secondary,expression:{energy,directness:z.directness,warmth:z.warmth,teasing:permitted?z.playfulness*R*(1-U):0,
-   maxQuestions:primary==='ask'||secondary==='ask'?1:0,maxSentences,detail:detailed},affect:{excitement,at:now}};
+   maxQuestions:V>=.5?Math.max(1,Math.ceil(3*z.expressiveness*z.social_appetite)):primary==='ask'||secondary==='ask'?Math.max(1,Math.ceil(3*z.expressiveness*z.social_appetite)):0,maxSentences,detail:detailed},affect:{excitement,at:now}};
 }
