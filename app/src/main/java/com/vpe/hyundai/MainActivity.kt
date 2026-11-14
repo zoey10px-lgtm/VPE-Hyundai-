@@ -1402,7 +1402,7 @@ class MainActivity : Activity() {
         if (demo || sessionToken().isBlank()) return
         val key = latest.vehicleKey ?: identity?.vehicleKey ?: return
         val scope = accountName()+"|"+key
-        observations.append(scope, patch, "real")
+        observations.append(scope, patch, if (android.os.Build.FINGERPRINT.contains("generic") || android.os.Build.MODEL.contains("Emulator")) "emulator" else "real")
         val now=System.currentTimeMillis()
         if (now-lastObservationFlush<15000) return
         lastObservationFlush=now
@@ -2041,6 +2041,11 @@ class MainActivity : Activity() {
             connectionNote = environment.summary
             render("diagnostics")
             return
+        }
+        val locationPrefs=getSharedPreferences("location_consent", MODE_PRIVATE)
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED && !locationPrefs.getBoolean("asked",false)) {
+            locationPrefs.edit().putBoolean("asked",true).apply()
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 1902)
         }
         stopLivePolling()
         lastProactiveText = null

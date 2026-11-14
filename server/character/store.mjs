@@ -22,7 +22,7 @@ export async function observations(userId,vehicleId,events,now=Date.now()){
  return mutate(userId,vehicleId,async(state,db)=>{
   const unique=[];for(const e of events){const r=await db.query('INSERT INTO vpe_character_events(vehicle_id,event_id,at) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING event_id',[vehicleId,e.id,new Date(e.at)]);if(r.rowCount)unique.push(e);}
   const changed=ingest(state,unique,now);Object.assign(state,changed.state);
-  const snapshot=aggregate(state.trips,state.profile.feedback,now);state.profile=updateTraits(state.profile,snapshot,now);state.profile.values=values(state.profile.traits);state.features=snapshot;
+  const snapshot=aggregate(state.trips,state.profile.feedback,now,state.refills||[]);state.profile=updateTraits(state.profile,snapshot,now);state.profile.values=values(state.profile.traits);state.features=snapshot;
   await db.query("DELETE FROM vpe_character_events WHERE vehicle_id=$1 AND at<NOW()-INTERVAL '8 days'",[vehicleId]);
   return {profile:state.profile,state,accepted:unique.length,duplicate:events.length-unique.length};
  });

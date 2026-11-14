@@ -19,6 +19,7 @@ class PleosVehicleClient(context: Context) {
     private val appContext = context.applicationContext
     private val vehicle = Vehicle(appContext)
     private var initialized = false
+    private val locationSource = VehicleLocationSource(appContext) { emitUpdate("LOCATION_UPDATE", it) }
     @Volatile private var distanceRegistered = false
     @Volatile private var fuelRegistered = false
     @Volatile private var evSocRegistered = false
@@ -118,6 +119,7 @@ class PleosVehicleClient(context: Context) {
         }
         try {
             ready()
+            locationSource.start()
             report("SDK initialize() 호출 완료 · Vehicle Service 통신 성공은 데이터 응답으로 확인", null)
         } catch (error: Exception) {
             report("SERVICE_ERROR: ${safeMessage(error)}", null)
@@ -541,6 +543,7 @@ class PleosVehicleClient(context: Context) {
     }
 
     @Synchronized fun release() {
+        locationSource.stop()
         listenerReporter = null
         if (initialized) {
             if (distanceRegistered) {

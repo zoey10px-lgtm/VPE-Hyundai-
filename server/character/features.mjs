@@ -10,9 +10,9 @@ function feature(rows,key,min=8,now=Date.now()){
  const value=valid.reduce((s,r)=>s+r[key]*2**(-(now-r.end)/DAY/14),0)/sum;
  return {value:clamp(value),n:valid.length,q:valid.length/Math.max(1,rows.length)*valid.reduce((s,r)=>s+(r.quality??1),0)/valid.length*Math.min(1,valid.length/20),evidence:valid.map(r=>r.id)};
 }
-export function aggregate(trips,feedback=[],now=Date.now()){
+export function aggregate(trips,feedback=[],now=Date.now(),refills=[]){
  const rows=trips.filter(t=>t.end>now-28*DAY&&t.end<=now&&t.km>=1&&t.minutes>=3);
- function build(rs){const out={};for(const[f,key,min]of [['F01','novelty',8],['F02','routeNovelty',8],['F05','refillConsistency',4],['F06','settingStability',8],['F07','passengerRatio',8],['F08','nightRatio',8],['F10','modeEntropy',8],['F11','cruiseRatio',8]]){const e=feature(rs,key,min,now);if(e)out[f]=e;}
+ function build(rs){const out={};for(const[f,key,min]of [['F01','novelty',8],['F02','routeNovelty',8],['F06','settingStability',8],['F07','passengerRatio',8],['F08','nightRatio',8],['F10','modeEntropy',8],['F11','cruiseRatio',8]]){const e=feature(rs,key,min,now);if(e)out[f]=e;}
   const complete=rs.filter(t=>!t.partial);if(complete.length>=8){
    const groups=[complete.filter(t=>![0,6].includes(new Date(t.start+9*3600000).getUTCDay())),complete.filter(t=>[0,6].includes(new Date(t.start+9*3600000).getUTCDay()))];
    const vals=groups.filter(g=>g.length>=4).map(g=>{let x=0,y=0,w=0;for(const t of g){const a=((t.start+9*3600000)%DAY)/DAY*2*Math.PI,wt=2**(-(now-t.end)/DAY/14);x+=wt*Math.cos(a);y+=wt*Math.sin(a);w+=wt;}return {value:Math.hypot(x,y)/w,n:g.length};});
@@ -21,7 +21,9 @@ export function aggregate(trips,feedback=[],now=Date.now()){
    out.F09={value:clamp(median(complete.map(t=>t.km))/100),n:complete.length,q:Math.min(1,complete.length/20)};
   }
   return out;}
- const global=build(rows),cells={},cellCounts={};for(const cell of new Set(rows.map(cellOf).filter(Boolean))){const rs=rows.filter(t=>cellOf(t)===cell);cells[cell]=build(rs);cellCounts[cell]=rs.length;}
+ const global=build(rows),cells={},cellCounts={};
+ const energyEvents=refills.filter(r=>r.at>now-28*DAY&&finite(r.value));
+ if(energyEvents.length>=4)global.F05={value:1-clamp(iqr(energyEvents.map(r=>r.value))/30),n:energyEvents.length,q:Math.min(1,energyEvents.length/10)};for(const cell of new Set(rows.map(cellOf).filter(Boolean))){const rs=rows.filter(t=>cellOf(t)===cell);cells[cell]=build(rs);cellCounts[cell]=rs.length;}
  const cs=Object.values(cells).map(c=>c.F01?.value).filter(finite);if(rows.length>=12&&cs.length>=2){const mean=cs.reduce((a,b)=>a+b)/cs.length;global.F12={value:1-clamp(Math.sqrt(cs.reduce((s,x)=>s+(x-mean)**2,0)/cs.length)/.5),q:Math.min(1,rows.length/20),n:rows.length};}
  for(let i=1;i<=15;i++){const key='D'+String(i).padStart(2,'0'),rs=feedback.filter(f=>f.feature===key&&f.at>now-28*DAY&&f.confidence>=.8);
   const min=i===1?12:i===4?16:8;if(rs.length>=min)global[key]={value:rs.reduce((s,r)=>s+r.value,0)/rs.length,n:rs.length,q:Math.min(1,rs.length/20)};}
@@ -43,7 +45,12 @@ export function ingest(state,events,now=Date.now()){
  for(const e of normalizeEvents(events,now).sort((a,b)=>a.at-b.at)){
   if(e.source==='test'&&state.source!=='test')continue;
   if(state.seen.includes(e.id)||e.at<(state.observed[e.signal]?.at??0))continue;
-  state.seen.push(e.id);state.observed[e.signal]=e;
+  state.seen.push(e.id);
+  const prior=state.observed[e.signal];
+  if(e.signal==='energyPercent'&&finite(prior?.value)&&finite(e.value)&&e.value-prior.value>=5&&e.at-prior.at<3600000){
+   state.refills=[...(state.refills||[]),{id:e.id,value:prior.value,at:e.at}].slice(-100);
+  }
+  state.observed[e.signal]=e;
   const s=freshState(state.observed,e.at);if(!finite(s.odometerKm))continue;
   const anchor=state.anchor;
   if(!anchor){state.anchor={km:s.odometerKm,at:e.at};continue;}
@@ -65,9 +72,6 @@ export function ingest(state,events,now=Date.now()){
    const modes=t.samples.map(x=>x.mode).filter(Boolean);if(modes.length){const counts={};modes.forEach(m=>counts[m]=(counts[m]||0)+1);const ps=Object.values(counts).map(n=>n/modes.length);if(ps.length>1)t.modeEntropy=-ps.reduce((s,p)=>s+p*Math.log(p),0)/Math.log(ps.length);}
    const manual=t.samples.map(x=>x.target).filter(finite);
    if(manual.length>=3)t.settingStability=1-clamp((Math.max(...manual)-Math.min(...manual))/8);
-   const replenishments=t.samples.slice(1).flatMap((x,i)=>finite(x.energy)&&finite(t.samples[i].energy)&&x.energy-t.samples[i].energy>=5?[t.samples[i].energy]:[]);
-   state.refills=[...(state.refills||[]),...replenishments].slice(-40);
-   if(replenishments.length&&state.refills.length>=4)t.refillConsistency=1-clamp(iqr(state.refills)/30);
    if(loc.length>=3&&!t.partial){
     const cells=[...new Set(loc.map(x=>`${Math.round(x.lat*1000)},${Math.round(x.lon*1000)}`))];
     const known=new Set(state.routeCells||[]);

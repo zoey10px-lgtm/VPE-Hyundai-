@@ -19,7 +19,8 @@ test('Postgres: ownership, event deduplication, persisted plans, chat replay and
   const first=await request('observations',{vehicleKey:'test-car',events:[event]});assert.equal(first.accepted,1);
   assert.equal((await request('observations',{vehicleKey:'test-car',events:[event]})).duplicate,1);
   const body={vehicleKey:'test-car',message:'안녕',turnId:randomUUID()};
-  const chat=await request('chat',body);assert.equal(chat.status,200);assert.ok(chat.instructions.includes('energyPercent'));
+  const concurrent=await Promise.all([request('chat',body),request('chat',body)]);
+  const chat=concurrent[0];assert.equal(concurrent[1].reply,chat.reply);assert.equal(chat.status,200);assert.ok(chat.instructions.includes('energyPercent'));
   assert.equal((await request('chat',body)).reply,chat.reply);assert.equal(calls,1);
   const profiles=await db.query('SELECT data FROM vpe_characters c JOIN vpe_vehicles v ON c.vehicle_id=v.id WHERE v.user_id=$1',[uid]);
   assert.equal(profiles.rows[0].data.profile.actions.length,1);

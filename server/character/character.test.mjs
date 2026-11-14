@@ -49,3 +49,17 @@ test('compiler sends actual dimensions, actions and evidence; MBTI is not the co
 test('MBTI border remains X rather than forcing a 1:1 type label',()=>{
  const p=Object.fromEntries(NAMES.map(k=>[k,.5]));assert.equal(mbti(p).label,'XXXX');
 });
+test('trip closes after five minutes parked and replay does not duplicate history',()=>{
+ let state={source:'real'};
+ const events=[
+  {id:'odo-0',signal:'odometerKm',value:100,at:now-600000,source:'real'},
+  {id:'odo-1',signal:'odometerKm',value:100.2,at:now-590000,source:'real'},
+  {id:'odo-2',signal:'odometerKm',value:110,at:now-310000,source:'real'},
+  {id:'park-1',signal:'parked',value:true,at:now-305000,source:'real'},
+  {id:'park-2',signal:'parked',value:true,at:now-1000,source:'real'},
+  {id:'odo-3',signal:'odometerKm',value:110,at:now,source:'real'}
+ ];
+ state=ingest(state,events,now).state;
+ assert.equal(state.trips.length,1);assert.equal(state.trips[0].km,10);
+ assert.equal(ingest(state,events,now).state.trips.length,1);
+});

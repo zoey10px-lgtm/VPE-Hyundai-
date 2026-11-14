@@ -7,6 +7,8 @@ import {makePlan,hash} from './engine.mjs';
 import {packetFor,compile,report,voiceProfile} from './context.mjs';
 import {extractMeaning} from './semantic.mjs';
 const respond=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
+const repliesInFlight=new Map();
+async function oneReply(key,fn){if(repliesInFlight.has(key))return repliesInFlight.get(key);const task=Promise.resolve().then(fn);repliesInFlight.set(key,task);try{return await task;}finally{repliesInFlight.delete(key);}}
 const validId=x=>typeof x==='string'&&/^[A-Za-z0-9:_-]{4,100}$/.test(x);
 function memoriesFor(profile,text,now){const tokens=new Set(text.toLowerCase().match(/[\p{L}\p{N}]+/gu)||[]);return profile.memories.map(m=>{const words=(m.text+' '+m.quote).toLowerCase().match(/[\p{L}\p{N}]+/gu)||[];const relevance=words.length?words.filter(w=>tokens.has(w)).length/Math.max(1,Math.min(tokens.size,words.length)):0;return {...m,score:.5*Math.min(1,relevance)+.25*m.importance+.15*Math.exp(-(now-m.at)/86400000/30)+.1};}).filter(m=>m.score>=.55).sort((a,b)=>b.score-a.score).slice(0,4);}
 export async function handleCharacter(req,res,url,body,callModel,createSecret){
@@ -35,6 +37,8 @@ export async function handleCharacter(req,res,url,body,callModel,createSecret){
  else{
   meaning=token?{}:await extractMeaning(text,history);
   const result=await mutate(user.id,vehicle.id,async(s,conn)=>{
+   const priorPlan=await conn.query('SELECT packet FROM vpe_character_turns WHERE vehicle_id=$1 AND turn_id=$2',[vehicle.id,turnId]);
+   if(priorPlan.rowCount)return {packet:priorPlan.rows[0].packet,profile:s.profile};
    applyMeaning(s.profile,meaning,text,turnId,now);
    const state=freshState(s.observed,now);const memories=memoriesFor(s.profile,text,now);
    const context={state,userTurn:true,cell:s.active?cellOf(s.active):null,memories,proactiveAllowed:false,preferences:Object.keys(s.profile.preferences)};
@@ -48,9 +52,11 @@ export async function handleCharacter(req,res,url,body,callModel,createSecret){
  const output={packet,instructions:compiled.instructions,coreHash:compiled.coreHash,turnId,epoch:body.epoch,character:report(profile)};
  if(token){const voice=voiceProfile(profile,body.voicePresentation);return respond(res,200,{...await createSecret({characterInstructions:compiled.instructions,characterVoice:voice},history),...output});}
  if(planning)return respond(res,200,output);
- const prior=await db.query("SELECT content FROM vpe_messages WHERE user_id=$1 AND vehicle_id=$2 AND client_event_id=$3",[user.id,vehicle.id,turnId+'-a']);
- if(prior.rowCount)return respond(res,200,{reply:prior.rows[0].content,...output});
- const reply=await callModel(text,{characterInstructions:compiled.instructions},history);
- await db.query("INSERT INTO vpe_messages(user_id,vehicle_id,role,content,client_event_id) VALUES($1,$2,'user',$3,$4),($1,$2,'assistant',$5,$6) ON CONFLICT (user_id,vehicle_id,client_event_id) WHERE client_event_id IS NOT NULL DO NOTHING",[user.id,vehicle.id,text,turnId+'-u',reply,turnId+'-a']);
- await recordResult(user.id,vehicle.id,turnId,true);return respond(res,200,{reply,...output});
+ const reply=await oneReply(user.id+':'+vehicle.id+':'+turnId,async()=>{
+  const prior=await db.query("SELECT content FROM vpe_messages WHERE user_id=$1 AND vehicle_id=$2 AND client_event_id=$3",[user.id,vehicle.id,turnId+'-a']);
+  if(prior.rowCount)return prior.rows[0].content;
+  const generated=await callModel(text,{characterInstructions:compiled.instructions},history);
+  await db.query("INSERT INTO vpe_messages(user_id,vehicle_id,role,content,client_event_id) VALUES($1,$2,'user',$3,$4),($1,$2,'assistant',$5,$6) ON CONFLICT (user_id,vehicle_id,client_event_id) WHERE client_event_id IS NOT NULL DO NOTHING",[user.id,vehicle.id,text,turnId+'-u',generated,turnId+'-a']);
+  await recordResult(user.id,vehicle.id,turnId,true);return generated;
+ });return respond(res,200,{reply,...output});
 }

@@ -11,14 +11,14 @@ class CharacterObservations(context: Context) {
     @Synchronized fun append(scope: String, patch: VehicleReadings, source: String) {
         val at = System.currentTimeMillis()
         val events = load(scope)
-        val values = mapOf("odometerKm" to patch.odometerKm, "energyPercent" to patch.energyPercent(),
+        val values = mapOf("latitude" to patch.latitude, "longitude" to patch.longitude,"odometerKm" to patch.odometerKm, "energyPercent" to patch.energyPercent(),
             "actualCabinC" to patch.cabinTemperatureC, "targetCabinC" to patch.targetTemperatureC,
             "parked" to patch.parked, "passenger" to patch.passenger, "hvacAuto" to patch.hvacAuto, "drivingMode" to patch.drivingMode,
             "safetyWarning" to patch.safetyWarning, "cruiseControlState" to patch.cruiseControlState,
             "fanSpeedLevel" to patch.fanSpeedLevel)
         values.forEach { (signal, value) -> if (value != null) events.put(JSONObject()
             .put("id", UUID.randomUUID().toString()).put("signal", signal).put("value", value)
-            .put("at", at).put("source", source)) }
+            .put("at", if (signal=="latitude" || signal=="longitude") patch.locationObservedAtMs ?: at else at).put("source", source)) }
         val bounded = JSONArray()
         for (i in maxOf(0, events.length()-4000) until events.length()) bounded.put(events.get(i))
         prefs.edit().putString(scope, bounded.toString()).apply()

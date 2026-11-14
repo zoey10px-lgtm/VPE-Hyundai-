@@ -40,7 +40,7 @@ class VpeRealtimeVoice(private val listener: Listener) {
     private val http = OkHttpClient.Builder().pingInterval(15, TimeUnit.SECONDS).build()
     // Realtime sends audio faster than playback. Keep each generated PCM chunk.
     // A completed response is small relative to emulator memory; no silent drops.
-    private val audioQueue = LinkedBlockingQueue<ByteArray>()
+    private val audioQueue = LinkedBlockingQueue<Pair<Int, ByteArray>>()
     private val interruptEpoch = AtomicInteger(0)
     private val transcript = StringBuilder()
     private val plannerTimer = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
@@ -204,6 +204,12 @@ class VpeRealtimeVoice(private val listener: Listener) {
                     listener.onPlanTurn(words,turnId,epoch) { instructions -> submitPlan(epoch,turnId,instructions) }
                 }
             }
+            "conversation.item.input_audio_transcription.failed" -> {
+                val item=json.optString("item_id")
+                val epoch=itemEpochs.remove(item) ?: return
+                listener.onDiagnostic("TRANSCRIPTION_FAILED: responding to original audio")
+                submitPlan(epoch,"voice-"+item,null)
+            }
             "response.created" -> {
                 if (responseBusy && json.optJSONObject("response")?.optJSONObject("metadata")?.optString("epoch") == interruptEpoch.get().toString()) acceptedResponseId = json.optJSONObject("response")?.optString("id")
             }
@@ -222,7 +228,7 @@ class VpeRealtimeVoice(private val listener: Listener) {
                                     outputReceivedBytes=0L
                                 }
                                 outputReceivedBytes+=pcm.size
-                                audioQueue.offer(pcm)
+                                audioQueue.offer(interruptEpoch.get() to pcm)
                             }
                         }
                     listener.onStatus("VPE가 말하는 중…")
@@ -288,9 +294,10 @@ class VpeRealtimeVoice(private val listener: Listener) {
         speakerThread = Thread {
             try {
                 while (active && !Thread.currentThread().isInterrupted) {
-                    val pcm = audioQueue.poll(50, TimeUnit.MILLISECONDS)
-                    if (pcm == null) { completePlayback(); continue }
-                    val epoch = interruptEpoch.get()
+                    val queued = audioQueue.poll(50, TimeUnit.MILLISECONDS)
+                    if (queued == null) { completePlayback(); continue }
+                    val epoch = queued.first
+                    val pcm = queued.second
                     var offset = 0
                     // Android may accept only part of one PCM chunk. Never
                     // mistake a partial write for a fully played response.
