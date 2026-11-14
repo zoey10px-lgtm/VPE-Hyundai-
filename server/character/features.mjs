@@ -58,6 +58,7 @@ export function ingest(state,events,now=Date.now()){
   if(!state.active&&s.odometerKm-anchor.km>=.1&&e.at-anchor.at<=60000){state.active={id:'trip-'+hash(anchor).slice(0,24),start:anchor.at,end:e.at,startKm:anchor.km,lastKm:s.odometerKm,lastAt:e.at,samples:[],quality:s.parked===false?1:.7};}
   if(!state.active&&e.at-anchor.at>60000)state.anchor={km:s.odometerKm,at:e.at};
   const t=state.active;if(!t)continue;
+  if(typeof s.passenger==='boolean')t.passenger=s.passenger;
   const moved=s.odometerKm>t.lastKm;if(moved){t.lastMove=e.at;t.lastKm=s.odometerKm;state.stoppedAt=null;}
   const gap=e.at-t.lastAt;t.lastAt=e.at;t.end=e.at;
   if(e.at-(t.samples.at(-1)?.at||0)>=10000)t.samples.push({at:e.at,km:s.odometerKm,passenger:s.passenger,mode:s.drivingMode,cruise:s.cruiseControlState,lat:s.latitude,lon:s.longitude,target:s.hvacAuto===false?s.targetCabinC:null,energy:s.energyPercent});
@@ -80,6 +81,7 @@ export function ingest(state,events,now=Date.now()){
    }
    const cc=t.samples.filter(x=>['ACTIVE','ENGAGED','ON','INACTIVE','OFF','STANDBY'].includes(x.cruise));t.cruiseRatio=cc.length?cc.filter(x=>['ACTIVE','ENGAGED','ON'].includes(x.cruise)).length/cc.length:null;
    t.nightRatio=t.samples.length?t.samples.filter(x=>{const h=new Date(x.at+9*3600000).getUTCHours();return h>=22||h<6;}).length/t.samples.length:null;
+   delete t.samples;
    state.trips.push(t);state.active=null;state.stoppedAt=null;state.anchor={km:s.odometerKm,at:e.at};closed=true;
   }
  }

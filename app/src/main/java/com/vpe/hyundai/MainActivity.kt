@@ -1402,7 +1402,8 @@ class MainActivity : Activity() {
         if (demo || sessionToken().isBlank()) return
         val key = latest.vehicleKey ?: identity?.vehicleKey ?: return
         val scope = accountName()+"|"+key
-        observations.append(scope, patch, if (android.os.Build.FINGERPRINT.contains("generic") || android.os.Build.MODEL.contains("Emulator")) "emulator" else "real")
+        val observedPatch = if (patch.evBatteryLevel == null && latest.evBatteryLevel != null) patch.copy(fuelPercent = null) else patch
+        observations.append(scope, observedPatch, if (android.os.Build.FINGERPRINT.contains("generic") || android.os.Build.MODEL.contains("Emulator")) "emulator" else "real")
         val now=System.currentTimeMillis()
         if (now-lastObservationFlush<15000) return
         lastObservationFlush=now
