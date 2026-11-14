@@ -109,10 +109,22 @@ object VpeAiClient {
 
     /** Returns an ephemeral Realtime credential; no permanent API key is stored on Android. */
     fun realtimeSecret(
-        baseUrl: String, token: String, context: JSONObject, history: JSONArray
+        baseUrl: String, token: String, context: JSONObject, history: JSONArray, vehicleKey: String
     ): JSONObject =
-        request(baseUrl, "/api/realtime/token", token,
-            JSONObject().put("context", context).put("history", history))
+        request(baseUrl, "/api/v3/realtime/token", token,
+            JSONObject().put("vehicleKey", vehicleKey).put("voicePresentation", context.optString("voicePresentation")))
+
+    fun observe(baseUrl: String, token: String, vehicleKey: String, events: JSONArray): JSONObject =
+        request(baseUrl, "/api/v3/observations", token,
+            JSONObject().put("vehicleKey", vehicleKey).put("events", events))
+
+    fun planTurn(baseUrl: String, token: String, vehicleKey: String, text: String, turnId: String, epoch: Int): JSONObject =
+        request(baseUrl, "/api/v3/turn/plan", token,
+            JSONObject().put("vehicleKey", vehicleKey).put("message", text).put("turnId", turnId).put("epoch", epoch))
+
+    fun turnHeard(baseUrl: String, token: String, vehicleKey: String, turnId: String) =
+        request(baseUrl, "/api/v3/turn/result", token,
+            JSONObject().put("vehicleKey", vehicleKey).put("turnId", turnId).put("heard", true))
 
     /** An authenticated vehicle-initiated turn (no fake user message). */
     fun proactiveAccount(
@@ -140,11 +152,11 @@ object VpeAiClient {
         message: String,
         context: JSONObject
     ): String {
-        val answer = request(baseUrl, "/api/chat", token,
+        val answer = request(baseUrl, "/api/v3/chat", token,
             JSONObject().put("vehicleKey", vehicleKey)
                 .put("vehicleName", vehicleName)
                 .put("message", message)
-                .put("context", context))
+                .put("turnId", java.util.UUID.randomUUID().toString()))
         return answer.optString("reply").takeIf { it.isNotBlank() }
             ?: throw IOException("GPT 응답이 비어 있어.")
     }

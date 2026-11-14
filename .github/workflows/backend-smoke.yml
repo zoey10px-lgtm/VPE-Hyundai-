@@ -8,6 +8,14 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: vpe_test
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -15,7 +23,11 @@ jobs:
           node-version: '22'
       - name: Validate server syntax
         run: node --check server/index.mjs
-      - name: Run proactive and GPT persona contrast unit tests
+      - run: npm ci --prefix server
+      - name: Test character engine and Postgres persistence
+        env:
+          DATABASE_URL: postgres://postgres:test@localhost:5432/vpe_test
+          TEST_DATABASE: '1'
         run: npm test --prefix server
       - name: Check auth and health without real OpenAI key
         shell: bash

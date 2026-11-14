@@ -2,6 +2,9 @@ package com.vpe.hyundai
 
 /** Values fetched from typed Pleos Vehicle SDK APIs. Null means unverified/unavailable. */
 data class VehicleReadings(
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val locationObservedAtMs: Long? = null,
     val odometerKm: Double? = null,
     val fuelPercent: Double? = null,
     val modelYear: Int? = null,
@@ -12,6 +15,8 @@ data class VehicleReadings(
     val hvacOn: Boolean? = null,
     val charging: Boolean? = null,
     val parked: Boolean? = null,
+    val passenger: Boolean? = null,
+    val hvacAuto: Boolean? = null,
     val safetyWarning: Boolean? = null,
     val tripDistanceRaw: String? = null,
     val tripTimeRaw: String? = null,
@@ -43,6 +48,9 @@ data class VehicleReadings(
     }
     /** A callback may contain only one field; null means no new reading. */
     fun mergeObserved(n: VehicleReadings): VehicleReadings = copy(
+        latitude = n.latitude ?: latitude,
+        longitude = n.longitude ?: longitude,
+        locationObservedAtMs = n.locationObservedAtMs ?: locationObservedAtMs,
         odometerKm = n.odometerKm ?: odometerKm,
         fuelPercent = n.fuelPercent ?: fuelPercent,
         modelYear = n.modelYear ?: modelYear,
@@ -53,6 +61,8 @@ data class VehicleReadings(
         hvacOn = n.hvacOn ?: hvacOn,
         charging = n.charging ?: charging,
         parked = n.parked ?: parked,
+        passenger = n.passenger ?: passenger,
+        hvacAuto = n.hvacAuto ?: hvacAuto,
         safetyWarning = n.safetyWarning ?: safetyWarning,
         tripDistanceRaw = n.tripDistanceRaw ?: tripDistanceRaw,
         tripTimeRaw = n.tripTimeRaw ?: tripTimeRaw,

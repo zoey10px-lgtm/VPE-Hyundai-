@@ -34,9 +34,10 @@ data class HpeSignals(
 data class HpeCore(
     val axes: List<Double>,     // E, N, T, J: >.5 maps to E/N/T/J
     val traits: List<Double>,   // activity, curiosity, warmth, confidence, caution, playfulness, expressiveness
-    val confidence: Double
+    val confidence: Double,
+    val labelOverride: String? = null
 ) {
-    val mbti: String get() = buildString {
+    val mbti: String get() = labelOverride ?: buildString {
         append(if (axes[0] >= .5) "E" else "I")
         append(if (axes[1] >= .5) "N" else "S")
         append(if (axes[2] >= .5) "T" else "F")

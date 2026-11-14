@@ -19,6 +19,7 @@ class PleosVehicleClient(context: Context) {
     private val appContext = context.applicationContext
     private val vehicle = Vehicle(appContext)
     private var initialized = false
+    private val locationSource = VehicleLocationSource(appContext) { emitUpdate("LOCATION_UPDATE", it) }
     @Volatile private var distanceRegistered = false
     @Volatile private var fuelRegistered = false
     @Volatile private var evSocRegistered = false
@@ -118,6 +119,7 @@ class PleosVehicleClient(context: Context) {
         }
         try {
             ready()
+            locationSource.start()
             report("SDK initialize() 호출 완료 · Vehicle Service 통신 성공은 데이터 응답으로 확인", null)
         } catch (error: Exception) {
             report("SERVICE_ERROR: ${safeMessage(error)}", null)
@@ -235,6 +237,27 @@ class PleosVehicleClient(context: Context) {
         } catch (error: Exception) {
             report("EV_CAP_ERROR: " + safeMessage(error), null)
         }
+
+        try {
+            vehicle.getGear().getCurrentGearSelectionState(
+                onComplete = { gear ->
+                    val name = gear?.toString()?.uppercase()
+                    // Unknown enum values never imply a moving/parked state.
+                    val parked = when (name) { "P", "PARK", "PARKING", "GEAR_PARK" -> true
+                        "D", "DRIVE", "R", "REVERSE", "N", "NEUTRAL", "GEAR_DRIVE", "GEAR_REVERSE", "GEAR_NEUTRAL" -> false; else -> null }
+                    report("GEAR: " + name, parked?.let { VehicleReadings(parked = it) })
+                }, onFailed = { e -> report("GEAR_ERROR: " + safeMessage(e), null) })
+        } catch (e: Exception) { report("GEAR_ERROR: " + safeMessage(e), null) }
+        try {
+            vehicle.getHVAC().getHvacAutoState(driverSeat,
+                onComplete = { value -> report("HVAC_AUTO: " + value, value?.let { VehicleReadings(hvacAuto = it) }) },
+                onFailed = { e -> report("HVAC_AUTO_ERROR: " + safeMessage(e), null) })
+        } catch (e: Exception) { report("HVAC_AUTO_ERROR: " + safeMessage(e), null) }
+        try {
+            vehicle.getSeat().getCurrentSeatOccupancy(SeatArea(SeatValue.ROW_1_RIGHT),
+                onComplete = { value -> report("FRONT_PASSENGER: " + value, value?.let { VehicleReadings(passenger = it) }) },
+                onFailed = { e -> report("PASSENGER_ERROR: " + safeMessage(e), null) })
+        } catch (e: Exception) { report("PASSENGER_ERROR: " + safeMessage(e), null) }
 
         // Additional public read-only Vehicle SDK sources. Never replace a failed
         // read with fabricated travel or warning values.
@@ -520,6 +543,7 @@ class PleosVehicleClient(context: Context) {
     }
 
     @Synchronized fun release() {
+        locationSource.stop()
         listenerReporter = null
         if (initialized) {
             if (distanceRegistered) {
