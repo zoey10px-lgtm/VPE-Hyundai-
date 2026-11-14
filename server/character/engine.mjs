@@ -76,11 +76,11 @@ export function makePlan(profile,context={},semantic={},now=Date.now()){
  const recent=profile.actions.slice(-5),penalty=a=>.8*recent.filter(x=>x===a).length/Math.max(1,recent.length);
  const scores={acknowledge:.3+.3*z.warmth+.2*U};
  if(N>=.2||H>=.2)scores.celebrate=1.2*N*z.curiosity+.8*H+.55*z.expressiveness+.25*z.social_appetite-.9*U;
- if(!semantic.quiet&&!profile.preferences.noQuestions&&!recent.slice(-2).every(x=>x==='ask')||recent.length<2&&!semantic.quiet&&!profile.preferences.noQuestions)scores.ask=.65*z.initiative+.65*z.curiosity*N+.3*R-.8*U;
+ if(!semantic.quiet&&!profile.preferences.noQuestions&&(recent.length<2||!recent.slice(-2).every(x=>x==='ask'))&&(.4*z.initiative+.35*z.social_appetite+.25*z.curiosity>.32||N>.3))scores.ask=.65*z.initiative+.65*z.curiosity*N+.3*R-.8*U;
  if(permitted&&U<.4&&!s.safetyWarning)scores.tease=.75*z.playfulness+.55*R+.6*V-.9*U;
  if(U>=.2)scores.care=1.2*U+.6*z.empathy+.35*z.warmth;
  if(S>=.2||Q>=.2&&!semantic.socialQuestion)scores.solve=1.3*S+.8*Q+.55*z.analytical+.25*z.planning;
- if(context.preferences?.length)scores.disclose=.65*z.disclosure+.45*z.autonomy+.35*N;
+ if(context.preferences?.length||z.disclosure>.45||z.autonomy>.65)scores.disclose=.65*z.disclosure+.45*z.autonomy+.35*N;
  if(M>=.55)scores.reminisce=1.1*M+.35*z.warmth+.25*R;
  if(semantic.vehicleQuestion||context.proactiveAllowed&&need>=.5)scores.request_need=1.1*need+.3*z.directness;
  if(context.userTurn===false)scores.wait=.65*(1-z.initiative)+.55*(1-z.social_appetite)+.7*U;

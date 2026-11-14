@@ -1,3 +1,4 @@
+import {generateCharacterReply} from './generation.mjs';
 import {readFileSync} from 'node:fs';
 import {makePlan,hash,initialProfile,updateTraits} from './engine.mjs';
 import {packetFor,compile,report} from './context.mjs';
@@ -20,8 +21,8 @@ export async function auditCharacters(userId,body,callModel){
    const plan=makePlan(profile,context,localMeaning(message),now+i*30000);
    const packet=packetFor(profile,plan,context,'audit-'+i);packet.history=history.slice(-6);
    const {instructions,coreHash}=compile(packet);
-   const reply=await callModel(message,{characterInstructions:instructions},history);
-   turns.push({message,reply,action:packet.action,coreHash});history.push({role:'user',content:message},{role:'assistant',content:reply});profile.actions.push(plan.primary);profile.affect=plan.affect;
+   const {reply,quality}=await generateCharacterReply(callModel,message,packet,history);
+   turns.push({message,reply,quality,action:packet.action,coreHash});history.push({role:'user',content:message},{role:'assistant',content:reply});profile.actions.push(plan.primary);profile.affect=plan.affect;
   }
   return {usage:fixture.name,synthetic:true,tripCount:fixture.tripCount,eventCount:fixture.eventCount,evidenceHash:hash(fixture.snapshot),character:report(profile),turns};
  }));

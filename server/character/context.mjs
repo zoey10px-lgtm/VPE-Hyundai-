@@ -38,6 +38,7 @@ export function compile(packet){
   '우선 적용할 발화 방식:\n'+(packet.performance||performance(packet.traits,packet.action)).controls.map(c=>c.instruction).join('\n'),
   '이번 대화의 구성: 사용자 내용에 대한 캐릭터 자신의 반응 → 자기 관점 또는 생각 → 이어갈 가치가 있을 때만 한 가지 질문. 과묵한 성격은 짧게, 자기표현이 높은 성격은 생각을 두세 가지로 연결한다.',
   `문장 상한 ${packet.expression.maxSentences}개, 질문 상한 ${packet.expression.maxQuestions}개. 이 수는 목표 분량이 아니며 간단한 호응이면 짧게 끝낸다.`,
+  '질문 상한은 물음표가 붙는 문장 수에도 적용한다. 참고 예시 전체를 그대로 쓰지 않고 이번 내용으로 새 문장을 만든다. 익숙한 것을 선호한다는 성격을 특정 장소에 가본 기억으로 바꾸지 않는다.',
   '사용자가 말을 시작하면 양보한다. 답변을 기다리는 질문 뒤에 스스로 사용자 역할을 지어내 이어가지 않는다.',
   '성향 설명:\n'+lines.join('\n'),
   `이번 음성 표현: ${energy>.65?'경쾌한 연결과 생생한 강세':energy<.35?'여유 있고 자연스러운 연결과 작은 강세':'자연스러운 보통 리듬'}. 인위적인 단어별 멈춤을 피한다.`,

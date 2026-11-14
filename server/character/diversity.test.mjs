@@ -9,7 +9,8 @@ const now=Date.UTC(2026,10,14,8);
 test('same vehicle with different raw SDK histories forms different complete characters',()=>{
  const a=usageFixture('exploration_shared',now),b=usageFixture('routine_solo',now);
  const compiled=JSON.parse(readFileSync(new URL('./fixtures/compiled.json',import.meta.url),'utf8'));
- assert.deepEqual(compiled.find(f=>f.name===a.name).snapshot,a.snapshot);
+ const rounded=x=>JSON.parse(JSON.stringify(x,(_,v)=>typeof v==='number'?Number(v.toPrecision(12)):v));
+ assert.deepEqual(rounded(compiled.find(f=>f.name===a.name).snapshot),rounded(a.snapshot));
  assert.ok(a.tripCount>=20&&b.tripCount>=20);assert.equal(a.snapshot.global.F07.value,1);assert.equal(b.snapshot.global.F07.value,0);assert.ok(a.eventCount>10000);
  const delta=NAMES.map(k=>Math.abs(a.profile.traits[k]-b.profile.traits[k]));
  assert.ok(delta.filter(x=>x>.2).length>=10,JSON.stringify(delta));

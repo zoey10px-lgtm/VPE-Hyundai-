@@ -1,3 +1,4 @@
+import {generateCharacterReply} from './generation.mjs';
 import {auditCharacters} from './audit.mjs';
 import {randomUUID} from 'node:crypto';
 import {authFromHeader,upsertVehicle} from '../account-api.mjs';
@@ -57,7 +58,7 @@ export async function handleCharacter(req,res,url,body,callModel,createSecret){
  const reply=await oneReply(user.id+':'+vehicle.id+':'+turnId,async()=>{
   const prior=await db.query("SELECT content FROM vpe_messages WHERE user_id=$1 AND vehicle_id=$2 AND client_event_id=$3",[user.id,vehicle.id,turnId+'-a']);
   if(prior.rowCount)return prior.rows[0].content;
-  const generated=await callModel(text,{characterInstructions:compiled.instructions},history);
+  const {reply:generated}=await generateCharacterReply(callModel,text,packet,history);
   await db.query("INSERT INTO vpe_messages(user_id,vehicle_id,role,content,client_event_id) VALUES($1,$2,'user',$3,$4),($1,$2,'assistant',$5,$6) ON CONFLICT (user_id,vehicle_id,client_event_id) WHERE client_event_id IS NOT NULL DO NOTHING",[user.id,vehicle.id,text,turnId+'-u',generated,turnId+'-a']);
   await recordResult(user.id,vehicle.id,turnId,true);return generated;
  });return respond(res,200,{reply,...output});
