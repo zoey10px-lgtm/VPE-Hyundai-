@@ -1,5 +1,5 @@
-import {usageFixture,USAGE_CASES} from './fixtures/usage.mjs';
-import {makePlan,hash} from './engine.mjs';
+import {readFileSync} from 'node:fs';
+import {makePlan,hash,initialProfile,updateTraits} from './engine.mjs';
 import {packetFor,compile,report} from './context.mjs';
 import {localMeaning} from './semantic.mjs';
 let fixtures;
@@ -10,7 +10,7 @@ export async function auditCharacters(userId,body,callModel){
  const messages=body.messages||[body.message||'오늘 처음으로 바다 보러 가! 너도 신나?'];
  if(!Array.isArray(messages)||messages.length<1||messages.length>4||messages.some(x=>typeof x!=='string'||!x.trim()||x.length>600))return {invalid:true};
  recent.set(userId,now);for(const[k,v]of recent)if(now-v>600000)recent.delete(k);
- fixtures??=Object.keys(USAGE_CASES).map(name=>usageFixture(name));
+ fixtures??=JSON.parse(readFileSync(new URL('./fixtures/compiled.json',import.meta.url),'utf8')).map(f=>({...f,profile:updateTraits(initialProfile('same-vehicle'),f.snapshot)}));
  const cases=await Promise.all(fixtures.map(async fixture=>{
   const profile=structuredClone(fixture.profile),history=[],turns=[];
   // Identical current sensors, relationship and user turns. Only usage history differs.

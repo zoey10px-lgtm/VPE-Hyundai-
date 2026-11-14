@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {usageFixture,USAGE_CASES} from './fixtures/usage.mjs';
 import {makePlan,NAMES,updateTraits} from './engine.mjs';
@@ -7,6 +8,8 @@ import {extractMeaning,localMeaning} from './semantic.mjs';
 const now=Date.UTC(2026,10,14,8);
 test('same vehicle with different raw SDK histories forms different complete characters',()=>{
  const a=usageFixture('exploration_shared',now),b=usageFixture('routine_solo',now);
+ const compiled=JSON.parse(readFileSync(new URL('./fixtures/compiled.json',import.meta.url),'utf8'));
+ assert.deepEqual(compiled.find(f=>f.name===a.name).snapshot,a.snapshot);
  assert.ok(a.tripCount>=20&&b.tripCount>=20);assert.equal(a.snapshot.global.F07.value,1);assert.equal(b.snapshot.global.F07.value,0);assert.ok(a.eventCount>10000);
  const delta=NAMES.map(k=>Math.abs(a.profile.traits[k]-b.profile.traits[k]));
  assert.ok(delta.filter(x=>x>.2).length>=10,JSON.stringify(delta));
