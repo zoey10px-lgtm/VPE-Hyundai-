@@ -14,6 +14,7 @@
     <uses-permission android:name="pleos.car.permission.CAR_INFO" />
     <uses-permission android:name="pleos.car.permission.CAR_CLIMATE" />
     <uses-permission android:name="pleos.car.permission.CAR_SAFETY" />
+    <uses-permission android:name="pleos.car.permission.CAR_SEATS" />
     <application
         android:label="VPE Hyundai"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">

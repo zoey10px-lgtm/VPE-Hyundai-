@@ -155,7 +155,7 @@ class VpeRealtimeVoice(private val listener: Listener) {
                     if (pending != null && pending.first == interruptEpoch.get() &&
                         json.optJSONObject("session")?.optString("instructions") == stablePersonaInstructions) {
                         pendingPlan = null; responseBusy = true
-                        socket?.send(JSONObject().put("type", "response.create").toString())
+                        socket?.send(JSONObject().put("type", "response.create").put("response", JSONObject().put("metadata", JSONObject().put("epoch", pending.first.toString()))).toString())
                     }
                 }
                 if (!ready) {
@@ -205,7 +205,7 @@ class VpeRealtimeVoice(private val listener: Listener) {
                 }
             }
             "response.created" -> {
-                if (responseBusy) acceptedResponseId = json.optJSONObject("response")?.optString("id")
+                if (responseBusy && json.optJSONObject("response")?.optJSONObject("metadata")?.optString("epoch") == interruptEpoch.get().toString()) acceptedResponseId = json.optJSONObject("response")?.optString("id")
             }
             "response.output_audio.delta" -> {
                 if (json.optString("response_id") != acceptedResponseId) return
@@ -375,6 +375,7 @@ class VpeRealtimeVoice(private val listener: Listener) {
         socket?.send(JSONObject()
             .put("type", "response.create")
             .put("response", JSONObject()
+                .put("metadata", JSONObject().put("epoch", interruptEpoch.get().toString()))
                 .put("output_modalities", JSONArray().put("audio"))
                 .put("instructions", "차량 실시간 이벤트야. VPE 차량 자신이 필요한 내용만 " +
                     "현재 성격에 맞게 자연스럽게 말해. 이벤트: " + eventText.take(350)))

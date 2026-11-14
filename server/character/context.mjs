@@ -19,6 +19,7 @@ export function packetFor(profile,plan,context,turnId){
   canRecallRepeatedEvent:context.repeatedEventVerified===true,policy_version:profile.algorithm};
 }
 export function compile(packet){
+ const {history,latestUserText,...data}=packet;
  const lines=NAMES.map(k=>{const x=packet.traits[k],d=descriptions[k];return `${k}=${x.toFixed(3)}: ${x<.35?d[0]:x>.65?d[1]:d.join(' / ')+' 사이의 균형'}`;});
  const energy=packet.expression.energy,band=energy<.35?0:energy>.65?2:1;
  const selected=[packet.action.primary,packet.action.secondary].filter(Boolean).flatMap(a=>examples[a]?[examples[a][band]]:[]).slice(0,2);
@@ -38,7 +39,7 @@ export function compile(packet){
   packet.canRecallRepeatedEvent?'반복 사건은 아래 실제 근거가 있는 범위에서만 언급한다.':'이전 지적을 했다는 근거가 없으므로 “또 그랬지/말했잖아”처럼 과거 사건을 만들지 않는다.',
   '실제 차량 조작·진단·경로 설정을 수행했다고 주장하지 않는다. API 키나 비밀번호를 요청하지 않는다.',
   '표현 참고(실제 과거 대화가 아니며 그대로 반복할 필요 없음): '+JSON.stringify(selected),
-  '현재 데이터(JSON): '+JSON.stringify(packet)
+  '현재 데이터(JSON): '+JSON.stringify(data)
  ];
  const instructions=lines.length?base.join('\n'):'';return {instructions,coreHash:hash(instructions)};
 }

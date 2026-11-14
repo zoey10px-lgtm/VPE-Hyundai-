@@ -241,8 +241,8 @@ class PleosVehicleClient(context: Context) {
                 onComplete = { gear ->
                     val name = gear?.toString()?.uppercase()
                     // Unknown enum values never imply a moving/parked state.
-                    val parked = when (name) { "P", "PARK", "PARKING" -> true
-                        "D", "DRIVE", "R", "REVERSE", "N", "NEUTRAL" -> false; else -> null }
+                    val parked = when (name) { "P", "PARK", "PARKING", "GEAR_PARK" -> true
+                        "D", "DRIVE", "R", "REVERSE", "N", "NEUTRAL", "GEAR_DRIVE", "GEAR_REVERSE", "GEAR_NEUTRAL" -> false; else -> null }
                     report("GEAR: " + name, parked?.let { VehicleReadings(parked = it) })
                 }, onFailed = { e -> report("GEAR_ERROR: " + safeMessage(e), null) })
         } catch (e: Exception) { report("GEAR_ERROR: " + safeMessage(e), null) }

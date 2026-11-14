@@ -1395,7 +1395,7 @@ class MainActivity : Activity() {
         val confidence = c.optJSONObject("confidence")
         val weights = confidence?.keys()?.asSequence()?.map { confidence.optDouble(it, 0.0) }?.toList().orEmpty()
         hpe = old.copy(core = HpeCore((0..3).map { axes.optDouble(it, .5) },
-            (0..6).map { traits.optDouble(it, .5) }, weights.average().takeIf { it.isFinite() } ?: 0.0),
+            (0..6).map { traits.optDouble(it, .5) }, weights.average().takeIf { it.isFinite() } ?: 0.0, c.optString("mbti")),
             sources = listOf(c.optString("provenance"), c.optString("algorithm")))
     }
     private fun collectCharacterObservation(patch: VehicleReadings) {
@@ -1452,7 +1452,7 @@ class MainActivity : Activity() {
                     val temp = credential.optString("token")
                     val model = credential.optString("model")
                     val personaInstructions = credential.optString("instructions")
-                    acceptCharacter(credential.optJSONObject("character"), activeChatScope)
+                    acceptCharacter(credential.optJSONObject("character"), accountName()+"|"+vehicleKey)
                     val selectedVoice = credential.optString("voiceName")
                     val voiceType = credential.optString("voicePresentation")
                     val voiceStyle = credential.optString("personaStyle")
