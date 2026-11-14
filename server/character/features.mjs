@@ -42,7 +42,9 @@ export function freshState(observed,now=Date.now()){return Object.fromEntries(Ob
 export function ingest(state,events,now=Date.now()){
  state=structuredClone(state);state.observed??={};state.seen??=[];state.trips??=[];state.places??=[];
  let closed=false;
- for(const e of normalizeEvents(events,now).sort((a,b)=>a.at-b.at)){
+ const ordered=normalizeEvents(events,now).sort((a,b)=>a.at-b.at);
+ for(let index=0;index<ordered.length;index++){
+  const e=ordered[index];
   if(e.source==='test'&&state.source!=='test')continue;
   if(state.seen.includes(e.id)||e.at<(state.observed[e.signal]?.at??0))continue;
   state.seen.push(e.id);
@@ -51,6 +53,8 @@ export function ingest(state,events,now=Date.now()){
    state.refills=[...(state.refills||[]),{id:e.id,value:prior.value,at:e.at}].slice(-100);
   }
   state.observed[e.signal]=e;
+  // A timestamp is one observation frame: sample after all fields of that frame arrive.
+  if(ordered[index+1]?.at===e.at)continue;
   const s=freshState(state.observed,e.at);if(!finite(s.odometerKm))continue;
   const anchor=state.anchor;
   if(!anchor){state.anchor={km:s.odometerKm,at:e.at};continue;}
@@ -61,7 +65,9 @@ export function ingest(state,events,now=Date.now()){
   if(typeof s.passenger==='boolean')t.passenger=s.passenger;
   const moved=s.odometerKm>t.lastKm;if(moved){t.lastMove=e.at;t.lastKm=s.odometerKm;state.stoppedAt=null;}
   const gap=e.at-t.lastAt;t.lastAt=e.at;t.end=e.at;
-  if(e.at-(t.samples.at(-1)?.at||0)>=10000)t.samples.push({at:e.at,km:s.odometerKm,passenger:s.passenger,mode:s.drivingMode,cruise:s.cruiseControlState,lat:s.latitude,lon:s.longitude,target:s.hvacAuto===false?s.targetCabinC:null,energy:s.energyPercent});
+  const sample={at:e.at,km:s.odometerKm,passenger:s.passenger,mode:s.drivingMode,cruise:s.cruiseControlState,lat:s.latitude,lon:s.longitude,target:s.hvacAuto===false?s.targetCabinC:null,energy:s.energyPercent};
+  if(e.at-(t.samples.at(-1)?.at||0)>=10000)t.samples.push(sample);
+  else {const last=t.samples.at(-1);for(const[k,v]of Object.entries(sample))if(k!=='at'&&v!==null&&v!==undefined)last[k]=v;}
   if(s.parked===true&&!moved)state.stoppedAt??=e.at;else if(moved)state.stoppedAt=null;
   if(gap>15*60000||state.stoppedAt&&e.at-state.stoppedAt>=5*60000){
    t.partial=gap>15*60000;t.end=t.lastMove||t.end;t.km=t.lastKm-t.startKm;t.minutes=(t.end-t.start)/60000;
