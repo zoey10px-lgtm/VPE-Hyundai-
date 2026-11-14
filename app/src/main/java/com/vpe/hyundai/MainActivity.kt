@@ -1207,8 +1207,8 @@ class MainActivity : Activity() {
         title.addView(gap(8))
         title.addView(button("🧪 GPT 성격 차이 검증", false) { compareCurrentPersona() })
         title.addView(label(
-            "같은 질문·같은 차량 데이터로, 실제 VPE 성격과 " +
-                "테스트용 반대 성격의 GPT 답변을 비교해요. 로그인 필요 · API 2회 호출.",
+            "같은 질문·같은 현재 상태에서, " +
+                "서로 다른 합성 운행 이력으로 형성한 캐릭터 3개의 실제 GPT 답변을 비교해요. 로그인 필요.",
             12f, secondary))
         title.addView(gap(5))
         title.addView(label("음성 출력: " + ttsStatus, 12f, secondary))
