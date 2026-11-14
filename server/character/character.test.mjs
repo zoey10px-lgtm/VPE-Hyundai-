@@ -4,8 +4,8 @@ import {initialProfile,updateTraits,makePlan,NAMES,mbti} from './engine.mjs';
 import {normalizeEvents,freshState,aggregate,ingest} from './features.mjs';
 import {packetFor,compile} from './context.mjs';
 const now=Date.UTC(2026,10,14,8);
-test('stable seed, distinct identities and all sixteen bounded dimensions',()=>{
- const a=initialProfile('one');assert.deepEqual(a,initialProfile('one'));assert.notDeepEqual(a.traits,initialProfile('two').traits);
+test('unknown history remains neutral; vehicle IDs do not fabricate temperament',()=>{
+ const a=initialProfile('one');assert.deepEqual(a,initialProfile('one'));assert.deepEqual(a.traits,initialProfile('two').traits);
  assert.equal(Object.keys(a.traits).length,16);for(const x of Object.values(a.traits))assert.ok(x>=.25&&x<=.75);
 });
 test('missing and short histories do not fabricate personality evidence',()=>{
@@ -13,7 +13,7 @@ test('missing and short histories do not fabricate personality evidence',()=>{
  assert.deepEqual(aggregate([{id:'short',end:now,km:.2,minutes:1,novelty:1}],[],now).global,{});
 });
 test('daily update cap and replay watermark prevent repeated reinforcement',()=>{
- const p=initialProfile('a'),snapshot={global:{F01:{value:1,q:1},F02:{value:1,q:1},F04:{value:1,q:1},F12:{value:1,q:1}},watermark:'new'};
+ const p={...initialProfile('a'),formation:'formed'},snapshot={global:{F01:{value:1,q:1},F02:{value:1,q:1},F04:{value:1,q:1},F12:{value:1,q:1}},watermark:'new'};
  const next=updateTraits(p,snapshot,now);assert.ok(next.traits.curiosity>p.traits.curiosity);
  for(const k of NAMES)assert.ok(Math.abs(next.traits[k]-p.traits[k])<=.015000001);
  assert.deepEqual(updateTraits(next,{...snapshot,watermark:'other'},now+1000),next);

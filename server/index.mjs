@@ -184,7 +184,7 @@ const httpServer=createServer(async(req,res)=>{
   const url=new URL(req.url||"/","http://localhost");
   const path=url.pathname;
   if(req.method==="GET" && path==="/health"){
-    return respond(res,200,{ok:true,apiRevision:3,characterAlgorithm:"character.v1.0",openaiConfigured:Boolean(OPENAI_KEY),
+    return respond(res,200,{ok:true,apiRevision:3,characterAlgorithm:"character.v2.0",openaiConfigured:Boolean(OPENAI_KEY),
       databaseConfigured:databaseConfigured(),accessConfigured:Boolean(LEGACY_APP_TOKEN)});
   }
   if(!path.startsWith("/api/")) return respond(res,404,{error:"NOT_FOUND"});

@@ -70,7 +70,7 @@ export function ingest(state,events,now=Date.now()){
    if(last&&!t.partial){const dist=p=>Math.hypot((p.lat-last.lat)*111000,(p.lon-last.lon)*111000*Math.cos(last.lat*Math.PI/180));
     const place=state.places.find(p=>dist(p)<300);if(state.firstAt&&t.start-state.firstAt>=7*DAY)t.novelty=place?0:1;
     if(!place)state.places.push({lat:last.lat,lon:last.lon,at:t.end});}
-   const modes=t.samples.map(x=>x.mode).filter(Boolean);if(modes.length){const counts={};modes.forEach(m=>counts[m]=(counts[m]||0)+1);const ps=Object.values(counts).map(n=>n/modes.length);if(ps.length>1)t.modeEntropy=-ps.reduce((s,p)=>s+p*Math.log(p),0)/Math.log(ps.length);}
+   const modes=t.samples.map(x=>x.mode).filter(Boolean);if(modes.length){const counts={};modes.forEach(m=>counts[m]=(counts[m]||0)+1);const ps=Object.values(counts).map(n=>n/modes.length);t.modeEntropy=ps.length===1?0:-ps.reduce((s,p)=>s+p*Math.log(p),0)/Math.log(ps.length);}
    const manual=t.samples.map(x=>x.target).filter(finite);
    if(manual.length>=3)t.settingStability=1-clamp((Math.max(...manual)-Math.min(...manual))/8);
    if(loc.length>=3&&!t.partial){
