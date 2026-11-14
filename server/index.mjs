@@ -5,13 +5,14 @@ import { handleV2 } from "./account-api.mjs";
 import { validProactiveKind, proactivePrompt } from "./proactive-events.mjs";
 import { verifyDatabaseStartup } from "./preflight.mjs";
 import {vehiclePersonaProfile} from "./vehicle-persona-policy.mjs";
+import {handleCharacter} from "./character/api.mjs";
 
 const PORT = Number(process.env.PORT || 10000);
 const MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 const REALTIME_MODEL = process.env.VPE_REALTIME_MODEL || "gpt-realtime-2.1-mini";
 const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
 const LEGACY_APP_TOKEN = process.env.VPE_ACCESS_TOKEN || "";
-const MAX_BODY = 24_000;
+const MAX_BODY = 262_144;
 const attempts = new Map();
 
 function respond(res, status, payload) {
@@ -49,9 +50,9 @@ async function readBody(req) {
 }
 function boundedHistory(history) {
   if(!Array.isArray(history)) return [];
-  return history.slice(-10).filter(item =>
+  return history.slice(-30).filter(item =>
     item && ["user","assistant"].includes(item.role) &&
-    typeof item.content==="string" && item.content.length<=1000
+    typeof item.content==="string" && item.content.length<=8000
   ).map(item=>({role:item.role,content:item.content}));
 }
 function traitInstructions(context) {
@@ -92,10 +93,10 @@ MBTI E/I는 외향적/내향적 대화 리듬, N/S는 상상/현실 중심, T/F�
 
 async function callModel(message, context, history, options = {}) {
   if (!OPENAI_KEY) throw new Error("OPENAI_NOT_CONFIGURED");
-  const identity = traitInstructions(context) +
+  const identity = context.characterInstructions || traitInstructions(context) +
     (Array.isArray(context?.axes) && context.axes.length===4
       ? "\n"+vehiclePersonaProfile(context).instructions : "");
-  const contextStr=JSON.stringify(context).slice(0,11000);
+  const contextStr=context.characterInstructions ? "{}" : JSON.stringify(context);
   const proactive=validProactiveKind(options?.proactiveKind);
   const input=[
     {role:"developer",content:"HPE 성격 표현 가이드:\n"+identity+"\n참고용 차량 데이터(JSON):\n"+contextStr},
@@ -107,7 +108,7 @@ async function callModel(message, context, history, options = {}) {
   const upstream=await fetch("https://api.openai.com/v1/responses",{
     method:"POST",
     headers:{"Content-Type":"application/json",Authorization:`Bearer ${OPENAI_KEY}`},
-    body:JSON.stringify({model:MODEL,instructions,input,max_output_tokens:proactive?180:450,store:false}),
+    body:JSON.stringify({model:MODEL,instructions:context.characterInstructions || instructions,input,max_output_tokens:proactive?300:1400,store:false}),
     signal:AbortSignal.timeout(25000)
   });
   if(!upstream.ok){
@@ -132,8 +133,8 @@ async function callModel(message, context, history, options = {}) {
 /** Short-lived credential for a mobile Realtime voice session. Main API key never leaves Render. */
 async function createRealtimeSecret(context, history = []) {
   if (!OPENAI_KEY) throw new Error("OPENAI_NOT_CONFIGURED");
-  const snapshot=JSON.stringify(context).slice(0,10000);
-  const personality=vehiclePersonaProfile(context);
+  const snapshot=context.characterInstructions ? "{}" : JSON.stringify(context);
+  const personality=context.characterVoice ? {...context.characterVoice,instructions:context.characterInstructions} : vehiclePersonaProfile(context);
   const instructions = [
     personality.instructions,
     "사용자가 말할 때 듣고, 대답 중 말을 걸면 멈추고 새 발화에 답해.",
@@ -156,7 +157,7 @@ async function createRealtimeSecret(context, history = []) {
             format:{type:"audio/pcm",rate:24000},
             transcription:{model:"gpt-4o-mini-transcribe",language:"ko"},
             turn_detection:{type:"semantic_vad",eagerness:"medium",
-              create_response:true,interrupt_response:true}
+              create_response:!context.characterInstructions,interrupt_response:true}
           },
           output:{format:{type:"audio/pcm",rate:24000},
             voice:personality.voiceName,speed:personality.speechSpeed}
@@ -183,15 +184,16 @@ const httpServer=createServer(async(req,res)=>{
   const url=new URL(req.url||"/","http://localhost");
   const path=url.pathname;
   if(req.method==="GET" && path==="/health"){
-    return respond(res,200,{ok:true,apiRevision:2,openaiConfigured:Boolean(OPENAI_KEY),
+    return respond(res,200,{ok:true,apiRevision:3,characterAlgorithm:"character.v1.0",openaiConfigured:Boolean(OPENAI_KEY),
       databaseConfigured:databaseConfigured(),accessConfigured:Boolean(LEGACY_APP_TOKEN)});
   }
   if(!path.startsWith("/api/")) return respond(res,404,{error:"NOT_FOUND"});
   const isAuth=path==="/api/auth/login" || path==="/api/auth/register";
   const ip=req.socket.remoteAddress||"unknown";
-  if(rateLimited(ip,isAuth?8:40)) return respond(res,429,{error:"RATE_LIMITED"});
+  if(rateLimited(ip,isAuth?8:240)) return respond(res,429,{error:"RATE_LIMITED"});
   try{
     const body=req.method==="POST"?await readBody(req):{};
+    if(path.startsWith('/api/v3/')) return await handleCharacter(req,res,url,body,callModel,createRealtimeSecret);
     if(req.method==="POST" && path==="/api/chat" && !databaseConfigured() && legacyAuthorized(req.headers.authorization)){
       if(typeof body?.message!=="string" || !body.message.trim() || body.message.length>1000 ||
          !body.context || typeof body.context!=="object" || Array.isArray(body.context))

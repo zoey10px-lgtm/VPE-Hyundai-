@@ -236,6 +236,27 @@ class PleosVehicleClient(context: Context) {
             report("EV_CAP_ERROR: " + safeMessage(error), null)
         }
 
+        try {
+            vehicle.getGear().getCurrentGearSelectionState(
+                onComplete = { gear ->
+                    val name = gear?.toString()?.uppercase()
+                    // Unknown enum values never imply a moving/parked state.
+                    val parked = when (name) { "P", "PARK", "PARKING" -> true
+                        "D", "DRIVE", "R", "REVERSE", "N", "NEUTRAL" -> false; else -> null }
+                    report("GEAR: " + name, parked?.let { VehicleReadings(parked = it) })
+                }, onFailed = { e -> report("GEAR_ERROR: " + safeMessage(e), null) })
+        } catch (e: Exception) { report("GEAR_ERROR: " + safeMessage(e), null) }
+        try {
+            vehicle.getHVAC().getHvacAutoState(driverSeat,
+                onComplete = { value -> report("HVAC_AUTO: " + value, value?.let { VehicleReadings(hvacAuto = it) }) },
+                onFailed = { e -> report("HVAC_AUTO_ERROR: " + safeMessage(e), null) })
+        } catch (e: Exception) { report("HVAC_AUTO_ERROR: " + safeMessage(e), null) }
+        try {
+            vehicle.getSeat().getCurrentSeatOccupancy(SeatArea(SeatValue.ROW_1_RIGHT),
+                onComplete = { value -> report("FRONT_PASSENGER: " + value, value?.let { VehicleReadings(passenger = it) }) },
+                onFailed = { e -> report("PASSENGER_ERROR: " + safeMessage(e), null) })
+        } catch (e: Exception) { report("PASSENGER_ERROR: " + safeMessage(e), null) }
+
         // Additional public read-only Vehicle SDK sources. Never replace a failed
         // read with fabricated travel or warning values.
         try {

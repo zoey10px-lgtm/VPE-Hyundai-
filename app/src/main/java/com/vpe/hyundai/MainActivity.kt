@@ -1374,6 +1374,52 @@ class MainActivity : Activity() {
         }
     }
 
+    private val characterIo = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val chatIo = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val observations by lazy { CharacterObservations(this) }
+    private var lastObservationFlush = 0L
+    private var serverCharacter: JSONObject? = null
+    private var serverCharacterScope = ""
+
+    private fun acceptCharacter(character: JSONObject?, scope: String) {
+        if (character == null || scope != activeChatScope) return
+        serverCharacter = character; serverCharacterScope = scope
+        applyServerCharacter()
+    }
+    private fun applyServerCharacter() {
+        if (serverCharacterScope != activeChatScope) return
+        val c = serverCharacter ?: return
+        val old = hpe ?: return
+        val axes = c.optJSONArray("axes") ?: return
+        val traits = c.optJSONArray("legacyTraits") ?: return
+        val confidence = c.optJSONObject("confidence")
+        val weights = confidence?.keys()?.asSequence()?.map { confidence.optDouble(it, 0.0) }?.toList().orEmpty()
+        hpe = old.copy(core = HpeCore((0..3).map { axes.optDouble(it, .5) },
+            (0..6).map { traits.optDouble(it, .5) }, weights.average().takeIf { it.isFinite() } ?: 0.0),
+            sources = listOf(c.optString("provenance"), c.optString("algorithm")))
+    }
+    private fun collectCharacterObservation(patch: VehicleReadings) {
+        if (demo || sessionToken().isBlank()) return
+        val key = latest.vehicleKey ?: identity?.vehicleKey ?: return
+        val scope = accountName()+"|"+key
+        observations.append(scope, patch, "real")
+        val now=System.currentTimeMillis()
+        if (now-lastObservationFlush<15000) return
+        lastObservationFlush=now
+        val token=sessionToken(); val endpoint=serverUrl()
+        characterIo.execute {
+            val batch=observations.batch(scope)
+            if (batch.length()>0) runCatching { VpeAiClient.observe(endpoint,token,key,batch) }
+                .onSuccess { response ->
+                    observations.acknowledge(scope,batch)
+                    runOnUiThread { acceptCharacter(response.optJSONObject("character"),scope) }
+                }.onFailure { error -> runOnUiThread {
+                    diagnosticLogs.add("CHARACTER_SYNC: "+error.message?.take(100))
+                    if (diagnosticLogs.size>80) diagnosticLogs.removeAt(0)
+                } }
+        }
+    }
+
     private fun startRealtimeVoice() {
         val id = identity ?: return
         val state = hpe ?: return
@@ -1398,14 +1444,15 @@ class MainActivity : Activity() {
         }
         Thread {
             val secret = runCatching {
-                VpeAiClient.realtimeSecret(endpoint, token, context, recent)
+                VpeAiClient.realtimeSecret(endpoint, token, context, recent, vehicleKey)
             }
             runOnUiThread {
                 if (!voiceActive || identity?.vehicleKey != vehicleKey || isDestroyed) return@runOnUiThread
                 secret.onSuccess { credential ->
                     val temp = credential.optString("token")
                     val model = credential.optString("model")
-                    val personaInstructions = credential.optString("personaInstructions")
+                    val personaInstructions = credential.optString("instructions")
+                    acceptCharacter(credential.optJSONObject("character"), activeChatScope)
                     val selectedVoice = credential.optString("voiceName")
                     val voiceType = credential.optString("voicePresentation")
                     val voiceStyle = credential.optString("personaStyle")
@@ -1427,6 +1474,16 @@ class MainActivity : Activity() {
                                 voiceStarting = false
                                 updateVoiceDisplay(status)
                             }
+                        }
+                        override fun onPlanTurn(text: String, turnId: String, epoch: Int, done: (String?) -> Unit) {
+                            characterIo.execute {
+                                val plan=runCatching { VpeAiClient.planTurn(endpoint,token,vehicleKey,text,turnId,epoch) }
+                                runOnUiThread { plan.onSuccess { acceptCharacter(it.optJSONObject("character"), accountName()+"|"+vehicleKey) } }
+                                done(plan.getOrNull()?.optString("instructions"))
+                            }
+                        }
+                        override fun onTurnHeard(turnId: String) {
+                            characterIo.execute { runCatching { VpeAiClient.turnHeard(endpoint,token,vehicleKey,turnId) } }
                         }
                         override fun onUserText(text: String) {
                             runOnUiThread {
@@ -1500,12 +1557,8 @@ class MainActivity : Activity() {
     }
 
     private fun refreshRealtimePersona() {
-        if (!voiceActive || voiceStarting) return
-        val state = hpe ?: return
-        val signature = state.core.axes.toString() + "|" + state.affect.toString()
-        if (signature == voicePersonaSignature) return
-        voicePersonaSignature = signature
-        realtimeVoice?.updatePersona(aiContext(state))
+        // Each completed user utterance receives an authoritative server plan.
+        // Never replace it with the local compatibility/reporting engine.
     }
 
     private fun stopRealtimeVoice() {
@@ -1794,9 +1847,10 @@ class MainActivity : Activity() {
         val scope = activeChatScope
         val context = aiContext(state)
         val name = storedVehicleName()
-        Thread {
+        val endpoint = serverUrl()
+        chatIo.execute {
             val result = runCatching {
-                VpeAiClient.askAccount(serverUrl(), token, id.vehicleKey, name, message, context)
+                VpeAiClient.askAccount(endpoint, token, id.vehicleKey, name, message, context)
             }.getOrElse { error ->
                 "[GPT 연결 오류: " + (error.message ?: "알 수 없는 오류") + "]\n" +
                     "로컬 응답: " + reply(message)
@@ -1811,7 +1865,7 @@ class MainActivity : Activity() {
                     if (currentTab == "chat") render("chat")
                 }
             }
-        }.start()
+        }
     }
 
     private fun reply(message: String): String {
@@ -2014,6 +2068,7 @@ class MainActivity : Activity() {
                     if (reading != null) {
                         val before = latest
                         latest = latest.mergeObserved(reading)
+                        collectCharacterObservation(reading)
                         if (reading.drivingMode != null)
                             modeUpdatedAtMs = System.currentTimeMillis()
                         if (reading.cruiseControlState != null)
@@ -2145,6 +2200,7 @@ class MainActivity : Activity() {
         val previous = hpe?.takeIf { it.key == key }
             ?: if (demo) null else hpeStore.load(key)
         hpe = HumanPersonalityEngine.observe(signals, previous)
+        applyServerCharacter()
         if (!demo) hpe?.let(hpeStore::save)
     }
 

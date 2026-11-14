@@ -28,6 +28,8 @@ import kotlin.math.max
  */
 class VpeRealtimeVoice(private val listener: Listener) {
     interface Listener {
+        fun onPlanTurn(text: String, turnId: String, epoch: Int, done: (String?) -> Unit)
+        fun onTurnHeard(turnId: String)
         fun onStatus(status: String)
         fun onUserText(text: String)
         fun onVehicleText(text: String)
@@ -41,6 +43,38 @@ class VpeRealtimeVoice(private val listener: Listener) {
     private val audioQueue = LinkedBlockingQueue<ByteArray>()
     private val interruptEpoch = AtomicInteger(0)
     private val transcript = StringBuilder()
+    private val plannerTimer = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
+    private val itemEpochs = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val processedItems = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+    private var pendingPlan: Pair<Int, String>? = null
+    private var planAppliedEpoch = -1
+    @Volatile private var responseBusy = false
+    @Volatile private var acceptedResponseId: String? = null
+    @Volatile private var pendingTranscript: String? = null
+    @Volatile private var currentTurnId: String? = null
+    @Volatile private var audioDone = false
+
+    @Synchronized private fun submitPlan(epoch: Int, turnId: String, instructions: String?) {
+        if (!active || epoch != interruptEpoch.get() || planAppliedEpoch == epoch) return
+        planAppliedEpoch = epoch
+        currentTurnId = turnId
+        pendingPlan = epoch to turnId
+        if (!instructions.isNullOrBlank()) stablePersonaInstructions = instructions
+        else listener.onDiagnostic("CHARACTER_PLAN_FALLBACK: using last confirmed persona")
+        socket?.send(JSONObject().put("type", "session.update").put("session", JSONObject()
+            .put("type", "realtime").put("instructions", stablePersonaInstructions)).toString())
+    }
+    @Synchronized private fun completePlayback() {
+        val words = pendingTranscript ?: return
+        if (!audioDone || audioQueue.isNotEmpty() || playedFrames()-outputFirstFrame < outputReceivedBytes/2) return
+        pendingTranscript = null
+        outputItemId = null
+        responseBusy = false
+        listener.onVehicleText(words)
+        currentTurnId?.let { listener.onTurnHeard(it) }
+        listener.onStatus("마이크 켜짐 · 편하게 말해 줘")
+    }
+
     private var stablePersonaInstructions = ""
     // In WebSocket mode playback lives on Android, so interruptions must
     // truncate audio the user did not hear from the model's conversation.
@@ -73,7 +107,7 @@ class VpeRealtimeVoice(private val listener: Listener) {
     private var speakerThread: Thread? = null
 
     fun start(ephemeralToken: String, model: String, personaInstructions: String) {
-        stablePersonaInstructions = personaInstructions.take(19_000)
+        stablePersonaInstructions = personaInstructions
         require(ephemeralToken.startsWith("ek_")) { "유효한 Realtime 임시 토큰이 없어." }
         require(model in setOf("gpt-realtime-2.1-mini", "gpt-realtime-2.1")) {
             "허용되지 않은 Realtime 모델이야."
@@ -115,6 +149,15 @@ class VpeRealtimeVoice(private val listener: Listener) {
         val json = runCatching { JSONObject(text) }.getOrNull() ?: return
         when (json.optString("type")) {
             "session.created", "session.updated" -> {
+                if (json.optString("type") == "session.updated") {
+                    val pending = pendingPlan
+                    // Match acknowledged instructions as well as epoch; an older update can arrive late.
+                    if (pending != null && pending.first == interruptEpoch.get() &&
+                        json.optJSONObject("session")?.optString("instructions") == stablePersonaInstructions) {
+                        pendingPlan = null; responseBusy = true
+                        socket?.send(JSONObject().put("type", "response.create").toString())
+                    }
+                }
                 if (!ready) {
                     ready = true
                     runCatching { initializeAudio() }.onFailure { error ->
@@ -126,7 +169,12 @@ class VpeRealtimeVoice(private val listener: Listener) {
                 }
             }
             "input_audio_buffer.speech_started" -> {
-                interruptEpoch.incrementAndGet()
+                val epoch = interruptEpoch.incrementAndGet()
+                json.optString("item_id").takeIf { it.isNotBlank() }?.let { itemEpochs[it] = epoch }
+                pendingPlan = null
+                if (responseBusy) socket?.send(JSONObject().put("type", "response.cancel").toString())
+                responseBusy = false; acceptedResponseId = null
+                pendingTranscript = null; audioDone = false; transcript.setLength(0)
                 if (outputItemId != null || audioQueue.isNotEmpty()) {
                     listener.onDiagnostic("AUDIO_INTERRUPTED: VAD_STARTED; queued=" + audioQueue.size)
                 }
@@ -145,10 +193,22 @@ class VpeRealtimeVoice(private val listener: Listener) {
                 if (partial.isNotEmpty()) listener.onStatus("듣는 중: " + partial.take(90))
             }
             "conversation.item.input_audio_transcription.completed" -> {
-                json.optString("transcript").trim().takeIf { it.isNotEmpty() }
-                    ?.let { listener.onUserText(it) }
+                val item = json.optString("item_id")
+                val words = json.optString("transcript").trim()
+                if (words.isNotEmpty() && processedItems.add(item)) {
+                    listener.onUserText(words)
+                    val epoch = itemEpochs.remove(item) ?: return
+                    if (epoch != interruptEpoch.get()) return
+                    val turnId = "voice-"+item
+                    plannerTimer.schedule({ submitPlan(epoch,turnId,null) }, 6, TimeUnit.SECONDS)
+                    listener.onPlanTurn(words,turnId,epoch) { instructions -> submitPlan(epoch,turnId,instructions) }
+                }
+            }
+            "response.created" -> {
+                if (responseBusy) acceptedResponseId = json.optJSONObject("response")?.optString("id")
             }
             "response.output_audio.delta" -> {
+                if (json.optString("response_id") != acceptedResponseId) return
                 val delta = json.optString("delta")
                 if (delta.isNotEmpty()) {
                     runCatching { Base64.decode(delta, Base64.DEFAULT) }
@@ -169,13 +229,15 @@ class VpeRealtimeVoice(private val listener: Listener) {
                 }
             }
             "response.output_audio_transcript.delta" -> {
+                if (json.optString("response_id") != acceptedResponseId) return
                 transcript.append(json.optString("delta"))
             }
             "response.output_audio_transcript.done" -> {
+                if (json.optString("response_id") != acceptedResponseId) return
                 val finalText = json.optString("transcript")
                     .ifBlank { transcript.toString() }.trim()
                 transcript.setLength(0)
-                if (finalText.isNotEmpty()) listener.onVehicleText(finalText)
+                if (finalText.isNotEmpty()) pendingTranscript = finalText
             }
             "response.done" -> {
                 val response=json.optJSONObject("response")
@@ -189,6 +251,8 @@ class VpeRealtimeVoice(private val listener: Listener) {
                 else listener.onStatus("마이크 켜짐 · 편하게 말해 줘")
             }
             "response.output_audio.done" -> {
+                if (json.optString("response_id") != acceptedResponseId) return
+                audioDone = true
                 listener.onDiagnostic("AUDIO_GENERATION_FINISHED: remaining=" + audioQueue.size)
             }
             "conversation.item.truncated" -> {
@@ -224,7 +288,8 @@ class VpeRealtimeVoice(private val listener: Listener) {
         speakerThread = Thread {
             try {
                 while (active && !Thread.currentThread().isInterrupted) {
-                    val pcm = audioQueue.poll(250, TimeUnit.MILLISECONDS) ?: continue
+                    val pcm = audioQueue.poll(50, TimeUnit.MILLISECONDS)
+                    if (pcm == null) { completePlayback(); continue }
                     val epoch = interruptEpoch.get()
                     var offset = 0
                     // Android may accept only part of one PCM chunk. Never
@@ -303,29 +368,15 @@ class VpeRealtimeVoice(private val listener: Listener) {
         }.also { it.name = "vpe-realtime-microphone"; it.start() }
     }
 
-    /** Update only the dynamic, observed persona; the server supplied initial safety rules. */
-    fun updatePersona(context: JSONObject) {
-        if (!active || !ready) return
-        // Preserve the complete seven-trait T/F/E/I persona contract from
-        // Render. Previous versions replaced it with a generic assistant prompt.
-        val newGuidance = stablePersonaInstructions +
-            "\n\n[최신 HPE 관측 상태: 이 수치가 더 새로운 데이터야]\n" +
-            context.toString().take(9_000) +
-            "\n처음 지정한 말투·T/F 반응 방식·음성 표현 스타일을 그대로 유지해."
-        socket?.send(JSONObject()
-            .put("type", "session.update")
-            .put("session", JSONObject().put("type", "realtime")
-                .put("instructions", newGuidance)).toString())
-    }
-
     /** The car can speak from its own sensor event, without a forged user turn. */
     fun announce(eventText: String) {
-        if (!active || !ready) return
+        if (!active || !ready || responseBusy || pendingPlan != null) return
+        responseBusy = true
         socket?.send(JSONObject()
             .put("type", "response.create")
             .put("response", JSONObject()
                 .put("output_modalities", JSONArray().put("audio"))
-                .put("instructions", "차량 실시간 이벤트야. VPE 차량 자신이 먼저 한두 문장으로 " +
+                .put("instructions", "차량 실시간 이벤트야. VPE 차량 자신이 필요한 내용만 " +
                     "현재 성격에 맞게 자연스럽게 말해. 이벤트: " + eventText.take(350)))
             .toString())
     }
@@ -334,6 +385,8 @@ class VpeRealtimeVoice(private val listener: Listener) {
         if (!active && !ready) return
         active = false
         ready = false
+        pendingPlan = null; pendingTranscript = null; acceptedResponseId = null
+        plannerTimer.shutdownNow()
         socket?.close(1000, "VPE voice off")
         socket = null
         audioQueue.clear()
