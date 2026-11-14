@@ -1,5 +1,5 @@
 import {database,inTransaction} from '../db.mjs';
-import {initialProfile,updateTraits,values} from './engine.mjs';
+import {initialProfile,updateTraits,values,migrateProfile} from './engine.mjs';
 import {ingest,aggregate} from './features.mjs';
 let boot;
 export async function schema(){
@@ -15,6 +15,7 @@ export async function mutate(userId,vehicleId,fn){
   const fresh={profile:initialProfile(vehicleId),source:'real',observed:{},trips:[]};
   await db.query('INSERT INTO vpe_characters(vehicle_id,data) VALUES($1,$2::jsonb) ON CONFLICT DO NOTHING',[vehicleId,JSON.stringify(fresh)]);
   const r=await db.query('SELECT data FROM vpe_characters WHERE vehicle_id=$1 FOR UPDATE',[vehicleId]);const state=r.rows[0].data;
+  state.profile=migrateProfile(state.profile,state.features||aggregate(state.trips||[],state.profile.feedback||[],Date.now(),state.refills||[]));
   const result=await fn(state,db);await db.query('UPDATE vpe_characters SET data=$2::jsonb,updated_at=NOW() WHERE vehicle_id=$1',[vehicleId,JSON.stringify(state)]);return result;
  });
 }

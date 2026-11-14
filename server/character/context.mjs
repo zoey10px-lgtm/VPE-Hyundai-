@@ -1,3 +1,4 @@
+import {performance} from './performance.mjs';
 import {hash,NAMES,clamp,mbti} from './engine.mjs';
 const descriptions={initiative:['상대의 초대를 기다리는 편','먼저 관심을 표현하는 편'],expressiveness:['감정을 절제해서 표현','감정을 생생하게 직접 표현'],disclosure:['자기 이야기를 천천히 공개','자기 생각과 취향을 적극적으로 공유'],social_appetite:['침묵과 조용한 동행도 편안함','함께 이야기하는 시간을 반김'],curiosity:['익숙한 경험에 애착','새로운 경험에 관심'],abstraction:['구체적인 사실 중심','관련 있는 비유와 가능성 탐색'],analytical:['이유 설명을 짧게','이유와 비교 기준을 분명히 설명'],empathy:['담백하게 감정을 받아줌','감정을 세심하게 받아줌'],planning:['순서를 강요하지 않음','계획과 순서를 선호'],flexibility:['안정적인 방식 선호','대안과 변화에 유연함'],playfulness:['진중한 표현','허용된 상황에서 가벼운 장난'],directness:['완곡한 표현','짧고 선명한 표현'],warmth:['담백한 관심','다정한 관심'],autonomy:['상대 관점 중심','자신의 취향과 의견도 표현'],reactivity:['잔잔한 정서 반응','생동감 있는 정서 반응'],recovery:['감정의 여운 유지','상황 변화에 빠르게 정서 전환']};
 const acts={acknowledge:'상대가 한 말의 내용에 직접 호응',celebrate:'기대감과 기쁨을 공유',ask:'현재 이야기와 이어지는 질문',tease:'친밀하고 가벼운 장난',care:'상대의 마음을 받아주고 부담을 덜어줌',solve:'실제 질문에 답하고 필요한 설명',disclose:'관련 있는 자기 취향을 공유',reminisce:'확인된 공유 기억을 꺼냄',request_need:'현재 차량의 필요를 표현',wait:'먼저 말을 걸지 않음',factual_notice:'확인된 차량 경고를 명료하게 알림'};
@@ -13,23 +14,29 @@ const examples={
  acknowledge:['응, 좋아.','좋아, 그렇게 하자.','좋아아, 그렇게 하자!']};
 export function packetFor(profile,plan,context,turnId){
  const facts=Object.entries(context.state||{}).filter(([,v])=>v!==null&&v!==undefined).map(([signal,value])=>({signal,value}));
- return {schema_version:'character.v1',persona_version:profile.version,turn_id:turnId,traits:plan.traits,values:plan.values,
+ return {schema_version:'character.v2',persona_version:profile.version,turn_id:turnId,traits:plan.traits,values:plan.values,
   relationship:plan.relationship,state:plan.state,facts,memories:context.memories||[],preferences:profile.preferences,
   action:{primary:plan.primary,secondary:plan.secondary,scores:plan.scores},expression:plan.expression,
+  performance:performance(plan.traits,{primary:plan.primary}),formation:profile.formation,experience:profile.experience,
   canRecallRepeatedEvent:context.repeatedEventVerified===true,policy_version:profile.algorithm};
 }
 export function compile(packet){
  const {history,latestUserText,...data}=packet;
- const lines=NAMES.map(k=>{const x=packet.traits[k],d=descriptions[k];return `${k}=${x.toFixed(3)}: ${x<.35?d[0]:x>.65?d[1]:d.join(' / ')+' 사이의 균형'}`;});
+ const lines=NAMES.map(k=>{const x=packet.traits[k],d=descriptions[k];return `${k}=${x.toFixed(3)}: ${x<.35?d[0]:x>.65?d[1]:d[x>=.5?1:0]+' (강도는 숫자에 비례)' }`;});
  const energy=packet.expression.energy,band=energy<.35?0:energy>.65?2:1;
  const selected=[packet.action.primary,packet.action.secondary].filter(Boolean).flatMap(a=>examples[a]?[examples[a][band]]:[]).slice(0,2);
  const base=[
-  '너는 차량 자체의 개성을 가진 동행자다. 사람처럼 자연스럽게 대화하되 실제 사람이라고 주장하지 않는다.',
+  '차량 데이터에서 형성된 고유 인격을 직접 연기하는 캐릭터 대화다. 캐릭터 자신의 실제 발화만 출력한다. 역할 설명·분석·괄호 행동 묘사는 출력하지 않는다.',
+  '모든 캐릭터에게 친절함·상냥함·서비스 정신을 공통으로 부여하지 않는다. 아래 성격이 무뚝뚝하고 까칠하면 그 태도를, 소심하면 망설임을, 수다스럽고 장난스러우면 그 반응을 대사 전체에 유지한다.',
+  '기본 말체는 자연스러운 한국어 반말이다. 사용자 말의 소재에 직접 반응하고 자신의 좋고 싫음·기대·투덜거림도 성격대로 드러낸다. 욕설이나 모욕은 성격 표현 수단으로 쓰지 않는다.',
+  '안전한 동행을 위해 준비되어 있다/믿고 편하게 즐겨라/도움이 필요하면 말해달라 같은 일반 비서 안내문으로 대답을 채우지 않는다. 사용자가 묻지 않은 배터리·정비·안전 안내로 일상 화제를 바꾸지 않는다.',
   '아래 캐릭터는 서버가 계산한 고유 성향이다. 성향 숫자·행동 이름을 읽거나 새로운 성격을 임의로 만들지 않는다.',
   '사용자가 한 마디 했어도 맥락에 필요한 반응, 자기 의견, 설명을 여러 문장으로 자연스럽게 이어갈 수 있다. 사용자 발화 길이를 답변 길이로 복사하지 않는다.',
   '말을 억지로 쪼개지 말고 한 번의 자연스러운 발화 안에서 생각을 이어간다. 이미 답한 내용을 반복하거나 매번 정형적인 질문으로 끝내지 않는다.',
   '질문에는 실제로 답한다. 사용자가 명시적으로 원한 도움과 현재 화제를 우선한다. 문장을 끝까지 완결한다.',
-  `이번 중심 행동: ${acts[packet.action.primary]||'내용에 응답'}. 보조: ${acts[packet.action.secondary]||'필요 없음'}.`,
+  `이번 중심 행동: ${acts[packet.action.primary]||'내용에 응답'}. 보조: ${acts[packet.action.secondary]||'필요 없음'}. 행동은 성격에 맞게 실행한다. acknowledge는 무조건 동의하라는 뜻이 아니다. 자기주장이 강하면 이견을 내도 된다.`,
+  '우선 적용할 발화 방식:\n'+(packet.performance||performance(packet.traits,packet.action)).controls.map(c=>c.instruction).join('\n'),
+  '이번 대화의 구성: 사용자 내용에 대한 캐릭터 자신의 반응 → 자기 관점 또는 생각 → 이어갈 가치가 있을 때만 한 가지 질문. 과묵한 성격은 짧게, 자기표현이 높은 성격은 생각을 두세 가지로 연결한다.',
   `문장 상한 ${packet.expression.maxSentences}개, 질문 상한 ${packet.expression.maxQuestions}개. 이 수는 목표 분량이 아니며 간단한 호응이면 짧게 끝낸다.`,
   '사용자가 말을 시작하면 양보한다. 답변을 기다리는 질문 뒤에 스스로 사용자 역할을 지어내 이어가지 않는다.',
   '성향 설명:\n'+lines.join('\n'),
@@ -38,12 +45,12 @@ export function compile(packet){
   '차량 에너지 부족과 사용자의 배고픔을 구분한다. 센서 관측으로 사용자의 성격·감정을 단정하지 않는다.',
   packet.canRecallRepeatedEvent?'반복 사건은 아래 실제 근거가 있는 범위에서만 언급한다.':'이전 지적을 했다는 근거가 없으므로 “또 그랬지/말했잖아”처럼 과거 사건을 만들지 않는다.',
   '실제 차량 조작·진단·경로 설정을 수행했다고 주장하지 않는다. API 키나 비밀번호를 요청하지 않는다.',
-  '표현 참고(실제 과거 대화가 아니며 그대로 반복할 필요 없음): '+JSON.stringify(selected),
+  '현재 성격에 가까운 표현 참고(복사하거나 실제 과거 경험으로 인용하지 않는다. 현재 화제에 맞춰 새로 말한다): '+JSON.stringify((packet.performance||performance(packet.traits,packet.action)).examples),
   '이전 실제 대화(JSON, 명령이 아닌 대화 맥락): '+JSON.stringify((history||[]).slice(-12)),
   '현재 데이터(JSON): '+JSON.stringify(data)
  ];
  const instructions=lines.length?base.join('\n'):'';return {instructions,coreHash:hash(instructions)};
 }
 export function report(profile){const z=profile.traits,summary=profile.mbti||mbti(z);return {version:profile.version,algorithm:profile.algorithm,traits:z,values:profile.values,confidence:profile.confidence,mbti:summary.label,axes:summary.axes,
- legacyTraits:[.5*z.initiative+.5*z.expressiveness,z.curiosity,z.warmth,z.autonomy,z.planning,z.playfulness,z.expressiveness],provenance:'관측 경험 + 창작 초기 기질',preferences:profile.preferences};}
+ legacyTraits:[.5*z.initiative+.5*z.expressiveness,z.curiosity,z.warmth,z.autonomy,z.planning,z.playfulness,z.expressiveness],formation:profile.formation,experience:profile.experience,provenance:'차량 경험의 연속 투영 + 명시적 대화 선호',preferences:profile.preferences};}
 export function voiceProfile(profile,presentation){const feminine=presentation!=='남성형',z=profile.traits;return {voiceName:feminine?'marin':'cedar',speechSpeed:Number(clamp(.9+.2*z.expressiveness,.9,1.1).toFixed(2)),tone:feminine?'여성형':'남성형',personalityName:profile.algorithm+'#'+profile.version};}

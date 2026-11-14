@@ -1,3 +1,4 @@
+import {auditCharacters} from './audit.mjs';
 import {randomUUID} from 'node:crypto';
 import {authFromHeader,upsertVehicle} from '../account-api.mjs';
 import {database} from '../db.mjs';
@@ -13,6 +14,7 @@ const validId=x=>typeof x==='string'&&/^[A-Za-z0-9:_-]{4,100}$/.test(x);
 function memoriesFor(profile,text,now){const tokens=new Set(text.toLowerCase().match(/[\p{L}\p{N}]+/gu)||[]);return profile.memories.map(m=>{const words=(m.text+' '+m.quote).toLowerCase().match(/[\p{L}\p{N}]+/gu)||[];const relevance=words.length?words.filter(w=>tokens.has(w)).length/Math.max(1,Math.min(tokens.size,words.length)):0;return {...m,score:.5*Math.min(1,relevance)+.25*m.importance+.15*Math.exp(-(now-m.at)/86400000/30)+.1};}).filter(m=>m.score>=.55).sort((a,b)=>b.score-a.score).slice(0,4);}
 export async function handleCharacter(req,res,url,body,callModel,createSecret){
  const user=await authFromHeader(req.headers.authorization);if(!user)return respond(res,401,{error:'LOGIN_REQUIRED'});
+ if(url.pathname==='/api/v3/persona-audit'&&req.method==='POST'){const result=await auditCharacters(user.id,body,callModel);return respond(res,result.limited?429:result.invalid?400:200,result);}
  const key=body?.vehicleKey||url.searchParams.get('vehicleKey');if(typeof key!=='string'||!/^[A-Za-z0-9:_-]{4,128}$/.test(key))return respond(res,400,{error:'INVALID_VEHICLE_KEY'});
  await schema(); const db=await database();const existing=await db.query('SELECT * FROM vpe_vehicles WHERE user_id=$1 AND vehicle_key=$2',[user.id,key]);const vehicle=existing.rows[0]||await upsertVehicle(db,user.id,key,{},body?.vehicleName);
  const path=url.pathname,now=Date.now();

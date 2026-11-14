@@ -1781,7 +1781,7 @@ class MainActivity : Activity() {
         val scope = activeChatScope
         val context = aiContext(state)
         val token = sessionToken()
-        Toast.makeText(this, "실제·대조 성격으로 GPT 응답을 비교하고 있어.", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "서로 다른 운행 이력으로 형성한 캐릭터 3개를 비교하고 있어.", Toast.LENGTH_SHORT).show()
         Thread {
             val result = runCatching {
                 VpeAiClient.comparePersona(serverUrl(), token, context)
@@ -1789,19 +1789,22 @@ class MainActivity : Activity() {
             runOnUiThread {
                 if (isFinishing || isDestroyed || scope != activeChatScope) return@runOnUiThread
                 result.onSuccess { reply ->
-                    val actual = reply.optString("actualReply")
-                    val contrast = reply.optString("contrastReply")
-                    val actualMbti = reply.optString("actualMbti")
-                    val contrastMbti = reply.optString("contrastMbti")
-                    diagnosticLogs.add("GPT_PERSONA_CONTRAST_OK")
+                    val cases=reply.optJSONArray("cases") ?: JSONArray()
+                    val labels=mapOf("exploration_shared" to "새 장소·동승·다양한 운행", "routine_solo" to "규칙적인 단독 운행", "night_distance" to "야간·장거리 단독 운행")
+                    val comparison=buildString {
+                        append("합성 SDK 운행 이력으로 진행한 비교 실험이야. 현재 센서·질문·차량 ID는 같고 누적 운행 이력만 달라.\n")
+                        for(i in 0 until cases.length()) {
+                            val c=cases.getJSONObject(i)
+                            append("\n[").append(labels[c.optString("usage")] ?: c.optString("usage")).append("]\n")
+                            append(c.optInt("tripCount")).append("회 운행 → ")
+                            append(c.optJSONArray("turns")?.optJSONObject(0)?.optString("reply")).append("\n")
+                        }
+                        append("\n실제 내 차량의 과거 기록으로 표시되는 데이터는 아니야.")
+                    }
+                    diagnosticLogs.add("DATA_CHARACTER_AUDIT_OK")
                     AlertDialog.Builder(this)
-                        .setTitle("GPT 성격 반영 실험")
-                        .setMessage(
-                            "질문: " + reply.optString("controlledQuestion") +
-                            "\n\n[실제 VPE · " + actualMbti + "]\n" + actual +
-                            "\n\n[테스트용 대조 성격 · " + contrastMbti + "]\n" + contrast +
-                            "\n\n두 응답의 말투·문장 길이·호응 방식을 비교해 봐." +
-                            "\n실제 차량 센서값은 같고 성격 점수만 반전했어.")
+                        .setTitle("운행 이력별 캐릭터 비교")
+                        .setMessage(comparison)
                         .setPositiveButton("확인", null)
                         .show()
                 }.onFailure { error ->

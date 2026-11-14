@@ -91,7 +91,7 @@ object VpeAiClient {
 
     /** Two real GPT calls with same question/data but opposite style coefficients. */
     fun comparePersona(baseUrl: String, token: String, context: JSONObject): JSONObject =
-        request(baseUrl, "/api/persona-compare", token,
+        request(baseUrl, "/api/v3/persona-audit", token,
             JSONObject().put("context", context))
 
     /** Persists each finalized speech turn with idempotent retry, without another model call. */

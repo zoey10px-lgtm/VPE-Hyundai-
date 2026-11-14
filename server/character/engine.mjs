@@ -1,5 +1,6 @@
+import {experienceTarget} from './experience.mjs';
 import {createHash} from 'node:crypto';
-export const VERSION='character.v1.0';
+export const VERSION='character.v2.0';
 export const NAMES=['initiative','expressiveness','disclosure','social_appetite','curiosity','abstraction','analytical','empathy','planning','flexibility','playfulness','directness','warmth','autonomy','reactivity','recovery'];
 export const W={initiative:{D01:.7},expressiveness:{D02:.8},disclosure:{D03:.6,D04:.2},social_appetite:{D01:.55,D04:.25},curiosity:{F01:.8,F02:.5,F04:.25,F12:.2},abstraction:{D05:.8},analytical:{D06:.8},empathy:{D07:.8},planning:{F03:.65,F05:.25,F06:.2,D08:.3},flexibility:{F04:.35,F10:.2,D09:.35},playfulness:{D10:.8},directness:{D11:.8},warmth:{D12:.8},autonomy:{D13:.8},reactivity:{D14:.8},recovery:{D15:-.8}};
 export const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x));
@@ -7,9 +8,10 @@ export const finite=x=>typeof x==='number'&&Number.isFinite(x);
 const sig=x=>1/(1+Math.exp(-x));
 export const hash=x=>createHash('sha256').update(typeof x==='string'?x:JSON.stringify(x)).digest('hex');
 export function initialProfile(key){
- const base=Object.fromEntries(NAMES.map(k=>[k,.25+.5*parseInt(hash(key+'|'+k).slice(0,8),16)/0xffffffff]));
- return {algorithm:VERSION,version:1,base,traits:{...base},offsets:{},confidence:{},lastDay:null,watermark:null,memories:[],feedback:[],preferences:{},relationshipDays:[],actions:[],affect:null,mbti:null};
+ const base=Object.fromEntries(NAMES.map(k=>[k,.5]));
+ return {algorithm:VERSION,version:1,base,traits:{...base},offsets:{},confidence:{},formation:'awaiting_evidence',experience:null,lastDay:null,watermark:null,memories:[],feedback:[],preferences:{},relationshipDays:[],actions:[],affect:null,mbti:null};
 }
+
 function target(base,features,k){
  let driving=0,dialog=0,total=0,quality=0;
  for(const [f,w] of Object.entries(W[k])){const e=features[f];total+=Math.abs(w);if(!e||!finite(e.value)||!finite(e.q))continue;
@@ -21,15 +23,30 @@ function target(base,features,k){
 export function updateTraits(profile,snapshot,now=Date.now()){
  const day=new Date(now+9*3600000).toISOString().slice(0,10);
  if(profile.lastDay===day||profile.watermark===snapshot.watermark)return profile;
- const next=structuredClone(profile);let changed=false;
- for(const k of NAMES){const t=target(profile.base[k],snapshot.global||{},k);next.confidence[k]=t.q;
-  if(t.q>0){next.traits[k]=clamp(profile.traits[k]+clamp(.15*t.q*(t.value-profile.traits[k]),-.015,.015));changed=true;}
-  for(const[c,features]of Object.entries(snapshot.cells||{})){const ct=target(profile.base[k],features,k);if(ct.q===0)continue;
-   const n=snapshot.cellCounts?.[c]||0;if(n<8)continue;const offset=clamp((ct.value-t.value)*n/(n+10),-.15,.15);
-   next.offsets[c]??={};const old=next.offsets[c][k]||0;next.offsets[c][k]=old+clamp(offset-old,-.015,.015);}}
- if(changed){next.version++;next.lastDay=day;next.watermark=snapshot.watermark;next.mbti=mbti(next.traits,profile.mbti,day);}
+ const next=structuredClone(profile),xp=experienceTarget(snapshot.global||{});let changed=false;
+ const forming=profile.formation!=='formed';
+ for(const k of NAMES){
+  const dialogue=target(.5,Object.fromEntries(Object.entries(snapshot.global||{}).filter(([f])=>f.startsWith('D'))),k);
+  const goal=clamp(xp.traits[k]+.35*(dialogue.value-.5),.06,.94);
+  const q=Math.max(xp.confidence[k],dialogue.q);next.confidence[k]=q;
+  if(q>0){next.traits[k]=forming?goal:clamp(profile.traits[k]+clamp(.15*q*(goal-profile.traits[k]),-.015,.015),.06,.94);changed=true;}
+  for(const[c,features]of Object.entries(snapshot.cells||{})){
+   if((snapshot.cellCounts?.[c]||0)<8)continue;
+   const cellTarget=experienceTarget(features);if(cellTarget.confidence[k]===0)continue;
+   const n=snapshot.cellCounts[c],offset=clamp((cellTarget.traits[k]-xp.traits[k])*n/(n+10),-.15,.15);
+   next.offsets[c]??={};const old=next.offsets[c][k]||0;next.offsets[c][k]=forming?offset:old+clamp(offset-old,-.015,.015);
+  }
+ }
+ if(changed){next.experience=xp.factors;next.formation='formed';next.version++;next.lastDay=day;next.watermark=snapshot.watermark;next.mbti=mbti(next.traits,profile.mbti,day);}
  return changed?next:profile;
 }
+// Existing randomly seeded v1 profiles are re-formed from their actual stored evidence.
+export function migrateProfile(profile,snapshot,now=Date.now()){
+ if(profile.algorithm===VERSION)return profile;
+ const next={...profile,algorithm:VERSION,base:Object.fromEntries(NAMES.map(k=>[k,.5])),traits:Object.fromEntries(NAMES.map(k=>[k,.5])),offsets:{},confidence:{},formation:'awaiting_evidence',experience:null,lastDay:null,watermark:null,mbti:null};
+ return updateTraits(next,snapshot||{global:{},watermark:'empty'},now);
+}
+
 export function mbti(z,previous=null,day='initial'){
  const axes=[.35*z.initiative+.30*z.social_appetite+.20*z.disclosure+.15*z.expressiveness,.65*z.abstraction+.35*z.curiosity,.5+.5*(z.analytical-z.empathy),.5+.5*(z.planning-z.flexibility)];
  const pos=['E','N','T','J'],neg=['I','S','F','P'];
@@ -52,23 +69,24 @@ export function makePlan(profile,context={},semantic={},now=Date.now()){
  const H=semantic.happy??0,U=semantic.tired??0,V=semantic.play??0,Q=semantic.question??0,S=semantic.solve??0;
  const excitementTarget=clamp(.55*z.curiosity*N+.3*H+.15*R);
  const tau=30+150*(1-z.recovery),dt=Math.max(0,(now-(profile.affect?.at||now))/1000);
- const excitement=profile.affect?excitementTarget+(profile.affect.excitement-excitementTarget)*Math.exp(-dt/tau):excitementTarget;
+ const inertia=profile.affect?excitementTarget+(profile.affect.excitement-excitementTarget)*Math.exp(-dt/tau):excitementTarget;
+ const excitement=clamp(inertia+.45*H*z.reactivity);
  const need=Math.max(hunger||0,cold||0,heat||0),M=context.memories?.[0]?.score||0;
- const permitted=profile.preferences.teasing===true||V>=.5;
+ const permitted=profile.preferences.teasing!==false&&(V>=.5||z.playfulness>=.65&&R>=.2);
  const recent=profile.actions.slice(-5),penalty=a=>.8*recent.filter(x=>x===a).length/Math.max(1,recent.length);
  const scores={acknowledge:.3+.3*z.warmth+.2*U};
  if(N>=.2||H>=.2)scores.celebrate=1.2*N*z.curiosity+.8*H+.55*z.expressiveness+.25*z.social_appetite-.9*U;
  if(!semantic.quiet&&!profile.preferences.noQuestions&&!recent.slice(-2).every(x=>x==='ask')||recent.length<2&&!semantic.quiet&&!profile.preferences.noQuestions)scores.ask=.65*z.initiative+.65*z.curiosity*N+.3*R-.8*U;
  if(permitted&&U<.4&&!s.safetyWarning)scores.tease=.75*z.playfulness+.55*R+.6*V-.9*U;
  if(U>=.2)scores.care=1.2*U+.6*z.empathy+.35*z.warmth;
- if(S>=.2||Q>=.2)scores.solve=1.3*S+.8*Q+.55*z.analytical+.25*z.planning;
+ if(S>=.2||Q>=.2&&!semantic.socialQuestion)scores.solve=1.3*S+.8*Q+.55*z.analytical+.25*z.planning;
  if(context.preferences?.length)scores.disclose=.65*z.disclosure+.45*z.autonomy+.35*N;
  if(M>=.55)scores.reminisce=1.1*M+.35*z.warmth+.25*R;
  if(semantic.vehicleQuestion||context.proactiveAllowed&&need>=.5)scores.request_need=1.1*need+.3*z.directness;
  if(context.userTurn===false)scores.wait=.65*(1-z.initiative)+.55*(1-z.social_appetite)+.7*U;
  for(const a of Object.keys(scores))scores[a]-=penalty(a);
  let ordered=Object.keys(scores).sort((a,b)=>scores[b]-scores[a]);
- if(Q>=.2||S>=.2)ordered=['solve',...ordered.filter(a=>a!=='solve')];
+ if((Q>=.2&&!semantic.socialQuestion)||S>=.2)ordered=['solve',...ordered.filter(a=>a!=='solve')];
  if(context.userTurn===false&&(!context.proactiveAllowed||semantic.quiet))ordered=['wait'];
  if(s.safetyWarning===true&&context.warningEvent)ordered=['factual_notice'];
  const primary=ordered[0],secondary=ordered.find(a=>a!==primary&&a!=='wait'&&a!=='request_need'&&a!=='tease'&&a!=='solve'&&a!=='acknowledge'&&a!=='disclose'&&!(primary==='care'&&a==='celebrate'))||null;

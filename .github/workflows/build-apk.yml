@@ -1,7 +1,7 @@
 name: Build VPE Android APK
 on:
   push:
-    branches: [main, feature/experience-character-v3]
+    branches: [main, feature/data-character-v2]
   workflow_dispatch:
 jobs:
   apk:
