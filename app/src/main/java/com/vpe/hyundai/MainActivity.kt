@@ -20,6 +20,8 @@ import android.speech.tts.TextToSpeech
 import android.text.InputType
 import android.text.method.HideReturnsTransformationMethod
 import android.text.method.PasswordTransformationMethod
+import android.view.MotionEvent
+import android.view.ViewTreeObserver
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -48,6 +50,13 @@ class MainActivity : Activity() {
     private lateinit var root: LinearLayout
     private lateinit var contentHost: LinearLayout
     private var currentTab = "home"
+    private var pageScroll: ScrollView? = null
+    private val pagePositions = mutableMapOf<String, Int>()
+    private var pageTouching = false
+    private var lastPageInteraction = 0L
+    private val deferredPageRender = Runnable {
+        if (!isFinishing && !isDestroyed) render(currentTab)
+    }
     private var identity: VpeIdentity? = null
     private var latest: VehicleReadings = VehicleReadings()
     private var observedSnapshot: VehicleSnapshot? = null
@@ -209,6 +218,73 @@ class MainActivity : Activity() {
         elevation = d(2).toFloat()
     }
 
+    private fun scoreGauge(name: String, value: Double, tint: Int = violet): LinearLayout =
+        column(12).apply {
+            background = shape(Color.rgb(247, 247, 253), 16)
+            val safe = if (value.isFinite()) value.coerceIn(0.0, 1.0) else 0.0
+            addView(row().apply {
+                addView(label(name, 14f, ink, true), LinearLayout.LayoutParams(0, -2, 1f))
+                addView(label(percent(safe), 16f, tint, true))
+            })
+            addView(gap(9))
+            addView(ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 1000
+                progress = (safe * 1000).toInt()
+                progressTintList = android.content.res.ColorStateList.valueOf(tint)
+                progressBackgroundTintList = android.content.res.ColorStateList.valueOf(line)
+                contentDescription = name + " " + percent(safe)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(-1, d(7)))
+        }
+
+    private fun gaugeGrid(parent: LinearLayout, values: List<Pair<String, Double>>, tint: Int = violet) {
+        values.chunked(2).forEach { pair ->
+            parent.addView(row().apply {
+                pair.forEachIndexed { index, (name, value) ->
+                    addView(scoreGauge(name, value, tint), LinearLayout.LayoutParams(0, -2, 1f).apply {
+                        if (index > 0) leftMargin = d(10)
+                    })
+                }
+                if (pair.size == 1) addView(View(this@MainActivity), LinearLayout.LayoutParams(0, 1, 1f).apply {
+                    leftMargin = d(10)
+                })
+            })
+            parent.addView(gap(10))
+        }
+    }
+
+    private fun evidenceBadge(signal: String, value: Any?): String? {
+        val text = value?.toString() ?: return null
+        return when (signal) {
+            "passenger" -> if (text == "true") "동승자 감지" else "동승자 없음"
+            "parked" -> if (text == "true") "주차 중" else "주행 상황"
+            "charging" -> if (text == "true") "충전 스위치 켜짐" else "충전 스위치 꺼짐"
+            "actualCabinC" -> (text.toDoubleOrNull()?.let { "실내 %.1f°C".format(Locale.KOREA, it) })
+            "targetCabinC" -> (text.toDoubleOrNull()?.let { "목표 %.1f°C".format(Locale.KOREA, it) })
+            "energyPercent" -> (text.toDoubleOrNull()?.let { "에너지 %.0f%%".format(Locale.KOREA, it) })
+            "odometerKm" -> (text.toDoubleOrNull()?.let { "누적 %,.0f km".format(Locale.KOREA, it) })
+            "modelYear" -> "모델 연도 $text"
+            "cruiseControlState" -> "크루즈 · " + readableState(text)
+            "drivingMode" -> "주행 모드 · " + readableState(text)
+            "hvacAuto" -> if (text == "true") "자동 공조 켜짐" else "자동 공조 꺼짐"
+            else -> null
+        }
+    }
+
+    private fun readableState(value: String): String = when (value.uppercase(Locale.ROOT)) {
+        "TRUE", "ON", "ENABLED", "ACTIVE" -> "켜짐"
+        "FALSE", "OFF", "DISABLED", "INACTIVE" -> "꺼짐"
+        "READY" -> "준비됨"
+        "NOT_READY", "NOT READY" -> "준비 전"
+        "ECO" -> "에코"
+        "NORMAL" -> "노멀"
+        "COMFORT" -> "컴포트"
+        "SPORT" -> "스포츠"
+        "SMART" -> "스마트"
+        "SNOW" -> "스노우"
+        else -> value
+    }
+
     private fun button(value: String, primary: Boolean = true, onClick: () -> Unit): TextView =
         label(value, 15f, if (primary) white else violet, true).apply {
             gravity = Gravity.CENTER
@@ -228,6 +304,18 @@ class MainActivity : Activity() {
         }
 
     private fun render(tab: String = currentTab) {
+        // SDK callbacks and the 8-second poll used to replace the view tree at y=0.
+        // Coalesce refreshes until touch/fling ends, then restore before the first draw.
+        if (tab == currentTab && pageScroll != null &&
+            (pageTouching || android.os.SystemClock.uptimeMillis() - lastPageInteraction < 700L)) {
+            mainHandler.removeCallbacks(deferredPageRender)
+            mainHandler.postDelayed(deferredPageRender, 750L)
+            return
+        }
+        mainHandler.removeCallbacks(deferredPageRender)
+        pageScroll?.let { pagePositions[currentTab] = it.scrollY }
+        pageScroll = null
+        pageTouching = false
         currentTab = tab
         liveMessages = null
         liveChatScroll = null
@@ -279,6 +367,17 @@ class MainActivity : Activity() {
         root.addView(navWrap)
         }
         setContentView(root)
+        val scroll = pageScroll
+        if (scroll != null) {
+            val position = pagePositions[tab] ?: 0
+            scroll.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    scroll.viewTreeObserver.removeOnPreDrawListener(this)
+                    scroll.scrollTo(0, position)
+                    return true
+                }
+            })
+        }
     }
 
     private fun scrollContent(): LinearLayout {
@@ -289,6 +388,17 @@ class MainActivity : Activity() {
         }
         val inner = column().apply { setPadding(d(22), d(12), d(22), d(26)) }
         scroll.addView(inner)
+        scroll.isFocusableInTouchMode = true
+        scroll.setOnTouchListener { _, event ->
+            pageTouching = event.actionMasked != MotionEvent.ACTION_UP &&
+                event.actionMasked != MotionEvent.ACTION_CANCEL
+            lastPageInteraction = android.os.SystemClock.uptimeMillis()
+            false
+        }
+        scroll.setOnScrollChangeListener { _: View, _: Int, _: Int, _: Int, _: Int ->
+            lastPageInteraction = android.os.SystemClock.uptimeMillis()
+        }
+        pageScroll = scroll
         contentHost.addView(scroll, LinearLayout.LayoutParams(-1, -1))
         return inner
     }
@@ -528,35 +638,33 @@ class MainActivity : Activity() {
         mood.addView(label("현재 감정: " + state.expression.headline +
             "  ·  장기 MBTI " + state.core.mbti, 16f, ink, true))
         mood.addView(gap(10))
-        mood.addView(dataRow("에너지 부족 / 긴장",
-            percent(state.affect.hunger) + " / " + percent(state.affect.tension)))
-        mood.addView(gap(8))
-        mood.addView(dataRow("추위 / 더위",
-            percent(state.affect.cold) + " / " + percent(state.affect.heat)))
-        mood.addView(gap(8))
-        mood.addView(dataRow("안도감", percent(state.affect.relief)))
-        mood.addView(gap(8))
+        gaugeGrid(mood, listOf("에너지 부족" to state.affect.hunger,
+            "긴장" to state.affect.tension, "추위" to state.affect.cold,
+            "더위" to state.affect.heat, "안도감" to state.affect.relief), teal)
         mood.addView(label("차량 특성·설정으로 초기 인격을 만들고, 운행 경험으로 성장해. 배터리·온도는 현재 기분에 반영돼.",
             13f, secondary))
         lastLiveChange?.let {
             mood.addView(gap(9))
             mood.addView(label("최근 데이터 변화: " + it, 13f, violet, true))
         }
-        mood.addView(gap(9))
-        mood.addView(label("능동 발화: " + proactiveStatus, 13f, teal))
-        mood.addView(gap(5))
-        mood.addView(label("음성 엔진: " + ttsStatus, 12f, secondary))
         page.addView(mood)
 
         page.addView(gap(16))
         val sources = card()
-        sources.addView(label("Pleos 데이터 · 페르소나 영향", 17f, teal, true))
+        sources.addView(label("차량 데이터와 성격의 연결", 19f, teal, true))
         sources.addView(gap(11))
+        val observations = mutableListOf<LinearLayout>()
+        var unavailable = 0
         fun observed(labelText: String, value: String?, contribution: String) {
-            sources.addView(dataRow(labelText, value ?: "미수신"))
-            sources.addView(gap(3))
-            sources.addView(label("영향: " + contribution, 12f, secondary))
-            sources.addView(gap(11))
+            if (value == null) { unavailable++; return }
+            observations.add(column(14).apply {
+                background = shape(Color.rgb(247, 247, 253), 16)
+                addView(label(labelText, 14f, secondary, true))
+                addView(gap(7))
+                addView(label(readableState(value), 21f, ink, true))
+                addView(gap(7))
+                addView(label(contribution, 13f, secondary))
+            })
         }
         observed("누적 주행거리",
             latest.odometerKm?.let { String.format(Locale.KOREA, "%,.0fkm", it) },
@@ -577,22 +685,24 @@ class MainActivity : Activity() {
             "현재 주행 맥락을 다른 입력과 가중합 + 누적 사용 패턴")
         observed("크루즈 상태", latest.cruiseControlState,
             "현재 정속 주행 맥락을 다른 입력과 가중합")
-        observed("동승자 감지", latest.passenger?.toString(),
+        observed("동승자 감지", latest.passenger?.let { if (it) "동승 중" else "동승자 없음" },
             "현재 동승 맥락을 다른 입력과 가중합 · 단독으로 E/I 결정하지 않음")
         observed("공조 자동 설정", latest.hvacAuto?.toString(),
             "현재 실내 설정 맥락 + 누적 설정 패턴")
-        observed("크루즈 목표속도", latest.cruiseTargetSpeedRaw,
-            "GPT 대화 맥락 · 실제 주행속도 아님")
-        observed("공조 팬속도", latest.fanSpeedLevel?.toString(),
-            "GPT 대화 맥락 · 사용 패턴 미집계")
-        observed("주행가능거리", latest.rangeRemainingRaw,
-            "GPT 대화 맥락 · SDK 단위 검증 후 점수 반영")
-        observed("배터리 용량", latest.batteryCapacityRaw,
-            "GPT 차량 특성 · SDK 단위 검증 후 점수 반영")
-        observed("트립 거리 / 시간",
-            if (latest.tripDistanceRaw == null && latest.tripTimeRaw == null) null else
-                (latest.tripDistanceRaw ?: "미수신") + " / " + (latest.tripTimeRaw ?: "미수신"),
-            "운행 이력 후보 · 원값 단위 검증 후 활용")
+        observations.chunked(2).forEach { pair ->
+            sources.addView(row().apply {
+                gravity = Gravity.TOP
+                pair.forEachIndexed { index, item ->
+                    addView(item, LinearLayout.LayoutParams(0, -2, 1f).apply {
+                        if (index > 0) leftMargin = d(10)
+                    })
+                }
+                if (pair.size == 1) addView(View(this@MainActivity), LinearLayout.LayoutParams(0, 1, 1f))
+            })
+            sources.addView(gap(10))
+        }
+        sources.addView(label("수신 항목 ${observations.size}개 · 대기 항목 ${unavailable}개", 13f, secondary))
+        sources.addView(gap(10))
         sources.addView(label(
             "처음부터 SDK 차량 특성·설정을 16개 성향으로 반영해. " +
                 "누적 운행·대화 경험으로 성격이 성장하고, 현재 상태로 기분이 달라져. " +
@@ -674,7 +784,6 @@ class MainActivity : Activity() {
         page.addView(row().apply {
             addView(tag(if (cachedReport) "저장된 분석" else if (demo) "시연 데이터" else "실제 SDK 관측 기반",
                 Color.rgb(231, 243, 255), violet))
-            addView(label("  ·  앱 1.5.5 · " + (character?.optString("algorithm") ?: "서버 성격 연결 대기"), 12f, secondary))
         })
         page.addView(gap(11))
         page.addView(button("차량 이름 지정 / 수정", false) { showVehicleNameDialog() })
@@ -690,11 +799,9 @@ class MainActivity : Activity() {
             else "차량의 초기 인격 + 누적 운행·대화 경험", 13f, secondary))
         if (character?.optBoolean("mbtiProvisional") == true)
             personality.addView(label("초기 성향 요약 · 경계에 있는 축은 경험이 쌓이며 달라져요", 12f, secondary))
-        val axisNames = listOf("외향 E/I", "새로움 N/S", "분석 T/F", "계획 J/P")
-        state.core.axes.forEachIndexed { idx, axis ->
-            personality.addView(label(axisNames[idx] + "  " +
-                String.format(Locale.KOREA, "%.1f%%", axis * 100.0), 13f, secondary))
-        }
+        personality.addView(gap(14))
+        val axisNames = listOf("외향 (E)", "새로움 (N)", "분석 (T)", "계획 (J)")
+        gaugeGrid(personality, axisNames.mapIndexed { index, name -> name to state.core.axes[index] })
         personality.addView(label("성격 입력 반영 범위 " + percent(state.core.confidence),
             13f, violet, true))
         val scoring = character?.optJSONObject("scoring")
@@ -711,10 +818,8 @@ class MainActivity : Activity() {
             if (normalized != null) {
                 val applied = inputNames.filter { !normalized.isNull(it.first) }
                     .joinToString(" · ") { it.second }
-                val missing = inputNames.filter { normalized.isNull(it.first) }
-                    .joinToString(" · ") { it.second }
-                personality.addView(label("반영 중: " + applied, 12f, secondary))
-                if (missing.isNotBlank()) personality.addView(label("미수신: " + missing, 12f, secondary))
+                personality.addView(gap(6))
+                personality.addView(label("성격 계산에 반영 · " + applied, 14f, secondary))
             }
         }
         personality.addView(gap(10))
@@ -733,10 +838,23 @@ class MainActivity : Activity() {
             "SDK 성격 입력을 기다리고 있어요." else narrative, 17f, ink, true))
         if (evidence != null && evidence.length() > 0) {
             personality.addView(gap(8))
-            val sources = (0 until evidence.length()).map { evidence.getJSONObject(it) }
+            val badges = (0 until evidence.length()).map { evidence.getJSONObject(it) }
                 .distinctBy { it.optString("signal") }
-                .joinToString(" · ") { it.optString("signal") + "=" + it.opt("value") }
-            personality.addView(label("초기 인격 재료: " + sources, 12f, secondary))
+                .mapNotNull { evidenceBadge(it.optString("signal"), it.opt("value")) }.take(4)
+            if (badges.isNotEmpty()) {
+                personality.addView(label("분석에 사용된 차량 데이터", 14f, teal, true))
+                personality.addView(gap(8))
+                badges.chunked(2).forEach { pair ->
+                    personality.addView(row().apply {
+                        pair.forEachIndexed { index, badge ->
+                            addView(tag(badge), LinearLayout.LayoutParams(0, -2, 1f).apply {
+                                if (index > 0) leftMargin = d(8)
+                            })
+                        }
+                    })
+                    personality.addView(gap(8))
+                }
+            }
         }
         personality.addView(gap(12))
         personality.addView(label(
@@ -794,10 +912,7 @@ class MainActivity : Activity() {
             12f, secondary
         ))
         radarCard.addView(gap(12))
-        traitNames.forEachIndexed { index, name ->
-            radarCard.addView(dataRow(name + " 점수", percent(traits[index])))
-            radarCard.addView(gap(6))
-        }
+        gaugeGrid(radarCard, traitNames.mapIndexed { index, name -> name to traits[index] })
         radarCard.addView(label(
             "다변량 가중합으로 계산한 16개 성향을 위 차트의 7개 항목으로 요약해요. " +
                 "현재 SOC·실내 온도·경고는 기분과 상황 반응에 반영돼요.", 13f, violet))
@@ -811,9 +926,8 @@ class MainActivity : Activity() {
         if (dimensions != null) {
             radarCard.addView(gap(12))
             radarCard.addView(label("채팅에 반영되는 16개 성향", 15f, teal, true))
-            dimensionNames.forEach { (key, name) ->
-                radarCard.addView(dataRow(name, percent(dimensions.optDouble(key, .5))))
-            }
+            radarCard.addView(gap(12))
+            gaugeGrid(radarCard, dimensionNames.map { (key, name) -> name to dimensions.optDouble(key, .5) }, teal)
         }
         page.addView(radarCard)
         page.addView(gap(15))

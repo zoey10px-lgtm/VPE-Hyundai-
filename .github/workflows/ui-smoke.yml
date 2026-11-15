@@ -20,7 +20,7 @@ jobs:
         with:
           gradle-version: '8.9'
       - name: Compile VPE
-        run: gradle --no-daemon assembleDebug
+        run: gradle --no-daemon assembleDebug assembleDebugAndroidTest
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -34,13 +34,25 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: false
-          script: bash .github/scripts/ui-smoke.sh
+          script: |
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell am instrument -w com.vpe.hyundai.test/com.vpe.hyundai.UiRegressionInstrumentation > /tmp/vpe-ui-regression.txt
+            cat /tmp/vpe-ui-regression.txt
+            grep -q UI_REGRESSION_PASS /tmp/vpe-ui-regression.txt
+            adb pull /sdcard/Android/data/com.vpe.hyundai/files/ui-report-top.png /tmp/ui-report-top.png
+            adb pull /sdcard/Android/data/com.vpe.hyundai/files/ui-report-gauges.png /tmp/ui-report-gauges.png
+            adb pull /sdcard/Android/data/com.vpe.hyundai/files/ui-home-cards.png /tmp/ui-home-cards.png
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: vpe-ui-smoke-diagnostics
           if-no-files-found: ignore
           path: |
+            /tmp/vpe-ui-regression.txt
+            /tmp/ui-report-top.png
+            /tmp/ui-report-gauges.png
+            /tmp/ui-home-cards.png
             /tmp/vpe_frame_1.png
             /tmp/vpe_frame_2.png
             /tmp/vpe_login_screen.png

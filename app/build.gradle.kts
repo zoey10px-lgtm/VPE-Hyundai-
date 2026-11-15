@@ -9,8 +9,9 @@ android {
         applicationId = "com.vpe.hyundai"
         minSdk = 28
         targetSdk = 35
-        versionCode = 31
-        versionName = "1.5.5"
+        testInstrumentationRunner = "com.vpe.hyundai.UiRegressionInstrumentation"
+        versionCode = 32
+        versionName = "1.5.6"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
