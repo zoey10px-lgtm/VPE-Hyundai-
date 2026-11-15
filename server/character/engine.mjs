@@ -1,6 +1,6 @@
 import {experienceTarget} from './experience.mjs';
 import {createHash} from 'node:crypto';
-export const VERSION='character.v3.0';
+export const VERSION='character.v3.0.1';
 export const NAMES=['initiative','expressiveness','disclosure','social_appetite','curiosity','abstraction','analytical','empathy','planning','flexibility','playfulness','directness','warmth','autonomy','reactivity','recovery'];
 export const W={initiative:{D01:.7},expressiveness:{D02:.8},disclosure:{D03:.6,D04:.2},social_appetite:{D01:.55,D04:.25},curiosity:{F01:.8,F02:.5,F04:.25,F12:.2},abstraction:{D05:.8},analytical:{D06:.8},empathy:{D07:.8},planning:{F03:.65,F05:.25,F06:.2,D08:.3},flexibility:{F04:.35,F10:.2,D09:.35},playfulness:{D10:.8},directness:{D11:.8},warmth:{D12:.8},autonomy:{D13:.8},reactivity:{D14:.8},recovery:{D15:-.8}};
 export const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x));
@@ -25,9 +25,12 @@ export function updateTraits(profile,snapshot,now=Date.now()){
  const bootstrap=snapshot.bootstrap||profile.bootstrap;
  const initializing=profile.formation!=='formed';
  const bootstrapHash=bootstrap?hash(bootstrap.factors):null;
+ const first=!profile.bootstrap;
+ // Raw values and timestamps must refresh even when their normalized score is
+ // unchanged (e.g. two equally comfortable temperature/target combinations).
+ if(bootstrap)profile={...profile,bootstrap};
  if(bootstrapHash&&bootstrapHash!==profile.bootstrapHash){
-  const first=!profile.bootstrap;
-  profile={...structuredClone(profile),bootstrap,bootstrapHash,version:profile.version+1};
+  profile={...structuredClone(profile),bootstrapHash,version:profile.version+1};
   if(first&&initializing){profile.traits={...bootstrap.traits};profile.confidence={...bootstrap.confidence};}
   if(initializing&&bootstrap.available)profile.formation='sdk_initial';
   profile.mbti=mbti(effectiveTraits(profile),null,day);
@@ -53,6 +56,7 @@ export function updateTraits(profile,snapshot,now=Date.now()){
 // Existing randomly seeded v1 profiles are re-formed from their actual stored evidence.
 export function migrateProfile(profile,snapshot,now=Date.now()){
  if(profile.algorithm===VERSION)return profile;
+ if(profile.algorithm==='character.v3.0')return updateTraits({...profile,algorithm:VERSION},snapshot||{global:{},watermark:'empty'},now);
  if(['character.v2.0','character.v2.1'].includes(profile.algorithm)){
   const preserve=profile.formation==='formed';
   const upgraded={...profile,algorithm:VERSION,bootstrap:null,bootstrapHash:null,mbti:null};

@@ -1,6 +1,6 @@
 import {pathToFileURL} from 'node:url';
 
-export const SCORING_VERSION = 'weighted-context.v1';
+export const SCORING_VERSION = 'weighted-context.v1.1';
 export const MIN_GROUPS = 4;
 export const KEYS = ['passengers','speed','acceleration','braking','time','comfort','media','cruise','mode','energy'];
 export const TRAIT_NAMES = ['initiative','expressiveness','disclosure','social_appetite','curiosity','abstraction','analytical','empathy','planning','flexibility','playfulness','directness','warmth','autonomy','reactivity','recovery'];
@@ -11,7 +11,11 @@ const scale = (x, lo, hi, physicalMax=hi) => valid(x, lo, physicalMax) ? clamp((
 const mean = xs => xs.length ? xs.reduce((a,b)=>a+b,0)/xs.length : null;
 
 export function cruiseActive(value) {
- const states = {ACTIVE:true,ENABLED:true,ENGAGED:true,ON:true,RUNNING:true,INACTIVE:false,DISABLED:false,OFF:false,STANDBY:false,CANCELLED:false,CANCELED:false};
+ // Actual Vehicle SDK 2.3.2 CruiseControl enum names. ENABLED means
+ // available/standby; ACTIVATED is the engaged state. Other providers retain
+ // their explicit ON/OFF aliases without being presented as console buttons.
+ const states = {OTHER:null,ENABLED:false,ACTIVATED:true,USER_OVERRIDE:false,SUSPENDED:false,FORCED_DEACTIVATION_WARNING:null,
+  ACTIVE:true,ENGAGED:true,ON:true,RUNNING:true,INACTIVE:false,DISABLED:false,OFF:false,STANDBY:false,CANCELLED:false,CANCELED:false};
  return typeof value === 'string' ? states[value.trim().toUpperCase()] ?? null : null;
 }
 
@@ -113,8 +117,8 @@ export function scorePersona(input={}, options={}) {
 // Two isolated demonstration datasets. Never inserted into a real vehicle's
 // history. Optional speed/dynamics/media fields are not claimed as live SDK data.
 export const DEMO_PRESETS = Object.freeze({
- lively_weekend_drive:{source:'synthetic',passengerCount:0,averageSpeedKmh:90,harshAccelPer100Km:10,harshBrakePer100Km:8,hourLocal:14,weekend:true,cabinTemperatureC:24,targetTemperatureC:22,mediaVolumePercent:90,cruiseControlState:'DISABLED',drivingMode:'SPORT',energyPercent:85},
- quiet_night_cruise:{source:'synthetic',passengerCount:3,averageSpeedKmh:55,harshAccelPer100Km:.1,harshBrakePer100Km:.2,hourLocal:2,weekend:false,cabinTemperatureC:22,targetTemperatureC:22,mediaVolumePercent:5,cruiseControlState:'ENABLED',drivingMode:'ECO',energyPercent:75}
+ lively_weekend_drive:{source:'synthetic',passengerCount:0,averageSpeedKmh:90,harshAccelPer100Km:10,harshBrakePer100Km:8,hourLocal:14,weekend:true,cabinTemperatureC:24,targetTemperatureC:22,mediaVolumePercent:90,cruiseControlState:'ENABLED',drivingMode:'SPORT',energyPercent:85},
+ quiet_night_cruise:{source:'synthetic',passengerCount:3,averageSpeedKmh:55,harshAccelPer100Km:.1,harshBrakePer100Km:.2,hourLocal:2,weekend:false,cabinTemperatureC:22,targetTemperatureC:22,mediaVolumePercent:5,cruiseControlState:'ACTIVATED',drivingMode:'ECO',energyPercent:75}
 });
 
 export function testDemoPresets() {

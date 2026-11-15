@@ -14,7 +14,7 @@ function observe(values,at=now,state={source:'real',profile:initialProfile('same
 const base={odometerKm:0,energyPercent:85,actualCabinC:22,passenger:false,cruiseControlState:'ENABLED',drivingMode:'ECO'};
 test('zero-km car uses multiple actual inputs, without invented trips',()=>{
  const state=observe(base),r=report(state.profile);
- assert.equal(state.trips.length,0);assert.equal(r.formation,'sdk_initial');assert.equal(r.algorithm,'character.v3.0');
+ assert.equal(state.trips.length,0);assert.equal(r.formation,'sdk_initial');assert.equal(r.algorithm,'character.v3.0.1');
  assert.ok(r.scoring.ready);assert.ok(r.scoring.groups.length>=4);assert.equal(Object.keys(r.traits).length,16);
  assert.equal(r.scoring.normalized.media,null);assert.equal(r.scoring.normalized.acceleration,null);
 });
@@ -53,7 +53,7 @@ test('stale contextual sensors expire and raw values retain their provenance',()
 test('v2.1 direct seat mappings migrate, retaining memories and formed long-term profiles',()=>{
  const s=observe(base),old={...initialProfile('old'),algorithm:'character.v2.1',traits:Object.fromEntries(NAMES.map(k=>[k,.9])),memories:[{id:'kept'}]};
  const snap=aggregate([],[],now);snap.bootstrap=bootstrapFromObserved(s.observed,now);
- const migrated=migrateProfile(old,snap,now);assert.equal(migrated.algorithm,'character.v3.0');assert.deepEqual(migrated.memories,old.memories);
+ const migrated=migrateProfile(old,snap,now);assert.equal(migrated.algorithm,'character.v3.0.1');assert.deepEqual(migrated.memories,old.memories);
  assert.equal(migrated.traits.warmth,.5);
  const formed={...old,formation:'formed',lastDay:'2026-11-15'};
  assert.deepEqual(migrateProfile(formed,snap,now).traits,formed.traits);
@@ -73,4 +73,19 @@ test('odometer time series derives speed; reset/teleport is never treated as acc
 test('ready report keeps four-letter output while retaining numeric boundary scores',()=>{
  const r=report(observe(base).profile);assert.equal(r.scoring.ready,true);
  assert.match(r.mbti,/^[EINSFTJP]{4}$/);assert.equal(r.mbti,r.axes.map((v,i)=>v>=.5?['E','N','T','J'][i]:['I','S','F','P'][i]).join(''));
+});
+
+test('raw SDK evidence refreshes when normalization and personality are unchanged',()=>{
+ const a=observe({...base,actualCabinC:22,targetCabinC:22}),before=structuredClone(a.profile);
+ const b=observe({actualCabinC:25,targetCabinC:25},now+1000,a);
+ assert.deepEqual(effectiveTraits(before),effectiveTraits(b.profile));
+ const evidence=report(b.profile).initialEvidence;
+ assert.equal(evidence.find(x=>x.signal==='actualCabinC').value,25);
+ assert.equal(evidence.find(x=>x.signal==='targetCabinC').value,25);
+ assert.equal(evidence.find(x=>x.signal==='actualCabinC').at,now+1000);
+});
+test('v3.0 upgrade preserves learned traits and memories',()=>{
+ const old={...initialProfile('same'),algorithm:'character.v3.0',traits:Object.fromEntries(NAMES.map(k=>[k,.62])),memories:[{id:'retained'}]};
+ const next=migrateProfile(old,{global:{},cells:{},watermark:'empty'},now);
+ assert.equal(next.algorithm,'character.v3.0.1');assert.deepEqual(next.traits,old.traits);assert.deepEqual(next.memories,old.memories);
 });

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {scorePersona,testDemoPresets,DEMO_PRESETS,WEIGHTS,KEYS,normalizeInputs} from './scoring.mjs';
+import {scorePersona,testDemoPresets,DEMO_PRESETS,WEIGHTS,KEYS,normalizeInputs,cruiseActive} from './scoring.mjs';
 test('two complete synthetic scenarios have opposite context-based characters',()=>{
  const r=testDemoPresets();assert.equal(r.lively_weekend_drive.mbti,'ENFP');assert.equal(r.quiet_night_cruise.mbti,'ISTJ');
  assert.ok(r.lively_weekend_drive.scores.E_score>70);assert.ok(r.quiet_night_cruise.scores.E_score<30);
@@ -44,4 +44,14 @@ test('sufficient multivariate inputs use the 50-point threshold for an initial t
  const r=scorePersona({passenger:true,energyPercent:100,cabinTemperatureC:19.1,hourLocal:12,weekend:true,cruiseControlState:'ENABLED'});
  assert.equal(r.ready,true);assert.match(r.mbti,/^[EINSFTJP]{4}$/);
  assert.equal(r.mbti,r.axes.map((v,i)=>v>=.5?['E','N','T','J'][i]:['I','S','F','P'][i]).join(''));
+});
+
+test('actual Vehicle 2.3.2 cruise enum distinguishes standby from engaged',()=>{
+ assert.equal(cruiseActive('ENABLED'),false);assert.equal(cruiseActive('ACTIVATED'),true);
+ assert.equal(cruiseActive('USER_OVERRIDE'),false);assert.equal(cruiseActive('SUSPENDED'),false);
+ assert.equal(cruiseActive('OTHER'),null);assert.equal(cruiseActive('FORCED_DEACTIVATION_WARNING'),null);
+ const a=scorePersona({...DEMO_PRESETS.lively_weekend_drive,cruiseControlState:'ENABLED'});
+ const b=scorePersona({...DEMO_PRESETS.lively_weekend_drive,cruiseControlState:'ACTIVATED'});
+ assert.equal(a.normalized.cruise,0);assert.equal(b.normalized.cruise,100);
+ assert.ok(b.scores.J_score>a.scores.J_score);
 });

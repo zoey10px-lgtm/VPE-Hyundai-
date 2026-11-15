@@ -43,3 +43,11 @@ node server/character/scoring.mjs
 - `quiet_night_cruise`: three passengers, steady, night, low volume → raw context ISTJ, E_score 23.1392.
 
 Raw context scores and effective profile scores are separately exposed. Test assertions verify occupied/quiet remains I and solo/dynamic remains E, missing-data behavior, fixed influence budgets, repeatability, core isolation, report/chat parity, speed derivation and persistence compatibility.
+
+## Vehicle 2.3.2 cruise enum correction (character.v3.0.1)
+
+The actual AAR enum contains OTHER, ENABLED, ACTIVATED, USER_OVERRIDE, SUSPENDED and FORCED_DEACTIVATION_WARNING. ENABLED is available/standby; ACTIVATED denotes engagement. The original scorer mistakenly omitted ACTIVATED and treated ENABLED as engagement. This is corrected; override/suspended map to inactive, and unknown/warning states remain unclassified.
+
+The user's actual Virtual Console card offers Not ready, Ready, Longitudinal, Lateral and Full autonomous. DISABLED is not a button on that card. Ready and Longitudinal must be checked against received SDK values, rather than presenting SDK enum names as console menu labels. Live confirmation still requires the reported raw cruise value and normalized contribution to change.
+
+Raw SDK evidence now refreshes independently of normalized-score hashes, so equal normalized values cannot leave old source values/timestamps displayed. The v3.0-to-v3.0.1 migration retains learned traits, memories and relationships.
