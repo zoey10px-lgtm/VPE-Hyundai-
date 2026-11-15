@@ -26,7 +26,7 @@ export async function observations(userId,vehicleId,events,now=Date.now()){
  return mutate(userId,vehicleId,async(state,db)=>{
   const unique=[];for(const e of events){const r=await db.query('INSERT INTO vpe_character_events(vehicle_id,event_id,at) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING event_id',[vehicleId,e.id,new Date(e.at)]);if(r.rowCount)unique.push(e);}
   state.sdkDiagnostics??={};
-  for(const e of unique.filter(e=>e.signal==='sdkDiagnostic')){
+  for(const e of unique.filter(e=>e.signal==='sdkDiagnostic'&&typeof e.value==='string')){
    const category=e.value.split(':')[0],previous=state.sdkDiagnostics[category];
    if(previous?.message!==e.value)console.info('VPE_SDK_DIAGNOSTIC '+e.value);
    state.sdkDiagnostics[category]={message:e.value,at:e.at,source:e.source};
