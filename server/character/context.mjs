@@ -1,6 +1,6 @@
 import {performance} from './performance.mjs';
 import {INPUT_ROLES} from './bootstrap.mjs';
-import {hash,NAMES,clamp,mbti,values} from './engine.mjs';
+import {hash,NAMES,clamp,mbti,values,effectiveTraits} from './engine.mjs';
 const descriptions={initiative:['상대의 초대를 기다리는 편','먼저 관심을 표현하는 편'],expressiveness:['감정을 절제해서 표현','감정을 생생하게 직접 표현'],disclosure:['자기 이야기를 천천히 공개','자기 생각과 취향을 적극적으로 공유'],social_appetite:['침묵과 조용한 동행도 편안함','함께 이야기하는 시간을 반김'],curiosity:['새로운 계획에 신중함','새로운 경험에 관심'],abstraction:['구체적인 사실 중심','관련 있는 비유와 가능성 탐색'],analytical:['이유 설명을 짧게','이유와 비교 기준을 분명히 설명'],empathy:['담백하게 감정을 받아줌','감정을 세심하게 받아줌'],planning:['순서를 강요하지 않음','계획과 순서를 선호'],flexibility:['안정적인 방식 선호','대안과 변화에 유연함'],playfulness:['진중한 표현','허용된 상황에서 가벼운 장난'],directness:['완곡한 표현','짧고 선명한 표현'],warmth:['담백한 관심','다정한 관심'],autonomy:['상대 관점 중심','자신의 취향과 의견도 표현'],reactivity:['잔잔한 정서 반응','생동감 있는 정서 반응'],recovery:['감정의 여운 유지','상황 변화에 빠르게 정서 전환']};
 const acts={acknowledge:'상대가 한 말의 내용에 직접 호응',celebrate:'기대감과 기쁨을 공유',ask:'현재 이야기와 이어지는 질문',tease:'친밀하고 가벼운 장난',care:'상대의 마음을 받아주고 부담을 덜어줌',solve:'실제 질문에 답하고 필요한 설명',disclose:'관련 있는 자기 취향을 공유',reminisce:'확인된 공유 기억을 꺼냄',request_need:'현재 차량의 필요를 표현',wait:'먼저 말을 걸지 않음',factual_notice:'확인된 차량 경고를 명료하게 알림'};
 const examples={
@@ -60,14 +60,14 @@ export function compile(packet){
 }
 const traitKeywords={initiative:['조용히 다가가는','먼저 다가가는'],expressiveness:['담백한','표현이 풍부한'],disclosure:['속마음을 천천히 여는','솔직하게 나누는'],social_appetite:['혼자서도 편안한','동행을 반기는'],curiosity:['익숙함을 아끼는','호기심 많은'],abstraction:['구체적인','상상력 있는'],analytical:['직관적인','분석적인'],empathy:['담담한','공감하는'],planning:['즉흥적인','계획적인'],flexibility:['일관된','유연한'],playfulness:['진중한','장난기 있는'],directness:['부드럽게 말하는','직설적인'],warmth:['무심한 듯한','다정한'],autonomy:['함께 결정하는','주관이 뚜렷한'],reactivity:['차분한','반응이 생생한'],recovery:['여운을 간직하는','기분 전환이 빠른']};
 export function report(profile){
- const z=profile.traits,summary=profile.mbti||mbti(z),initialized=profile.bootstrap?.available===true;
+ const z=effectiveTraits(profile),summary=mbti(z),initialized=profile.bootstrap?.contextScore?.ready===true;
  const keywords=NAMES.filter(k=>Math.abs(z[k]-.5)>.025).sort((a,b)=>Math.abs(z[b]-.5)-Math.abs(z[a]-.5)).slice(0,3).map(k=>traitKeywords[k][z[k]>=.5?1:0]);
  const provisional=initialized&&summary.label.includes('X');
- const label=provisional?summary.axes.map((v,i)=>v>=.5?['E','N','T','J'][i]:['I','S','F','P'][i]).join(''):summary.label;
- return {version:profile.version,algorithm:profile.algorithm,traits:z,values:values(z),confidence:profile.confidence,mbti:label,mbtiProvisional:provisional,axes:summary.axes,keywords,
+ const label=summary.label;
+ return {version:profile.version,algorithm:profile.algorithm,traits:z,values:values(z),confidence:Object.fromEntries(NAMES.map(k=>[k,Math.max(profile.confidence[k]||0,profile.bootstrap?.contextConfidence?.[k]||0)])),mbti:label,mbtiProvisional:provisional,axes:summary.axes,keywords,
  legacyTraits:[.5*z.initiative+.5*z.expressiveness,z.curiosity,z.warmth,z.autonomy,z.planning,z.playfulness,z.expressiveness],formation:profile.formation,experience:profile.experience,
- initialEvidence:profile.bootstrap?.evidence||[],initialFactors:profile.bootstrap?.factors||{},inputRoles:INPUT_ROLES,
- provenance:profile.formation==='sdk_initial'?'SDK 차량 특성·설정으로 생성한 초기 인격':'SDK 초기 인격 + 누적 차량 경험 + 명시적 대화 선호',preferences:profile.preferences};
+ initialEvidence:profile.bootstrap?.evidence||[],initialFactors:profile.bootstrap?.factors||{},inputRoles:INPUT_ROLES,scoring:profile.bootstrap?.contextScore||null,coreTraits:profile.traits,effectiveScores:{E_score:summary.axes[0]*100,I_score:(1-summary.axes[0])*100,N_score:summary.axes[1]*100,S_score:(1-summary.axes[1])*100,T_score:summary.axes[2]*100,F_score:(1-summary.axes[2])*100,J_score:summary.axes[3]*100,P_score:(1-summary.axes[3])*100},
+ provenance:'다변량 센서 가중합 + 누적 차량 경험 + 대화 선호',preferences:profile.preferences};
 }
-export function voiceProfile(profile,presentation){const feminine=presentation!=='남성형',z=profile.traits;return {voiceName:feminine?'marin':'cedar',speechSpeed:Number(clamp(.9+.2*z.expressiveness,.9,1.1).toFixed(2)),tone:feminine?'여성형':'남성형',personalityName:profile.algorithm+'#'+profile.version};}
+export function voiceProfile(profile,presentation){const feminine=presentation!=='남성형',z=effectiveTraits(profile);return {voiceName:feminine?'marin':'cedar',speechSpeed:Number(clamp(.9+.2*z.expressiveness,.9,1.1).toFixed(2)),tone:feminine?'여성형':'남성형',personalityName:profile.algorithm+'#'+profile.version};}
 

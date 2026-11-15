@@ -1,6 +1,6 @@
 import {experienceTarget} from './experience.mjs';
 import {createHash} from 'node:crypto';
-export const VERSION='character.v2.1';
+export const VERSION='character.v3.0';
 export const NAMES=['initiative','expressiveness','disclosure','social_appetite','curiosity','abstraction','analytical','empathy','planning','flexibility','playfulness','directness','warmth','autonomy','reactivity','recovery'];
 export const W={initiative:{D01:.7},expressiveness:{D02:.8},disclosure:{D03:.6,D04:.2},social_appetite:{D01:.55,D04:.25},curiosity:{F01:.8,F02:.5,F04:.25,F12:.2},abstraction:{D05:.8},analytical:{D06:.8},empathy:{D07:.8},planning:{F03:.65,F05:.25,F06:.2,D08:.3},flexibility:{F04:.35,F10:.2,D09:.35},playfulness:{D10:.8},directness:{D11:.8},warmth:{D12:.8},autonomy:{D13:.8},reactivity:{D14:.8},recovery:{D15:-.8}};
 export const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x));
@@ -24,13 +24,13 @@ export function updateTraits(profile,snapshot,now=Date.now()){
  const day=new Date(now+9*3600000).toISOString().slice(0,10);
  const bootstrap=snapshot.bootstrap||profile.bootstrap;
  const initializing=profile.formation!=='formed';
- const bootstrapHash=bootstrap?.available?hash(bootstrap.factors):null;
- // Initial SDK settings take effect immediately, without waiting for a trip/day.
- // Identical polls never reinforce or slowly saturate the personality.
- if(initializing&&bootstrapHash&&bootstrapHash!==profile.bootstrapHash){
-  profile={...structuredClone(profile),traits:{...bootstrap.traits},confidence:{...bootstrap.confidence},
-   bootstrap,bootstrapHash,formation:'sdk_initial',version:profile.version+1};
-  profile.mbti=mbti(profile.traits,null,day);
+ const bootstrapHash=bootstrap?hash(bootstrap.factors):null;
+ if(bootstrapHash&&bootstrapHash!==profile.bootstrapHash){
+  const first=!profile.bootstrap;
+  profile={...structuredClone(profile),bootstrap,bootstrapHash,version:profile.version+1};
+  if(first&&initializing){profile.traits={...bootstrap.traits};profile.confidence={...bootstrap.confidence};}
+  if(initializing&&bootstrap.available)profile.formation='sdk_initial';
+  profile.mbti=mbti(effectiveTraits(profile),null,day);
  }
  if(profile.lastDay===day||profile.watermark===snapshot.watermark)return profile;
  const next=structuredClone(profile),xp=experienceTarget(snapshot.global||{});let changed=false;
@@ -53,9 +53,21 @@ export function updateTraits(profile,snapshot,now=Date.now()){
 // Existing randomly seeded v1 profiles are re-formed from their actual stored evidence.
 export function migrateProfile(profile,snapshot,now=Date.now()){
  if(profile.algorithm===VERSION)return profile;
- if(profile.algorithm==='character.v2.0')return updateTraits({...profile,algorithm:VERSION},snapshot||{global:{},watermark:'empty'},now);
+ if(['character.v2.0','character.v2.1'].includes(profile.algorithm)){
+  const preserve=profile.formation==='formed';
+  const upgraded={...profile,algorithm:VERSION,bootstrap:null,bootstrapHash:null,mbti:null};
+  if(preserve&&profile.bootstrap?.traits)upgraded.traits=Object.fromEntries(NAMES.map(k=>[k,clamp(.5+profile.traits[k]-profile.bootstrap.traits[k],.06,.94)]));
+  if(!preserve){upgraded.traits=Object.fromEntries(NAMES.map(k=>[k,.5]));upgraded.confidence={};upgraded.formation='awaiting_evidence';}
+  return updateTraits(upgraded,snapshot||{global:{},watermark:'empty'},now);
+ }
  const next={...profile,algorithm:VERSION,base:Object.fromEntries(NAMES.map(k=>[k,.5])),traits:Object.fromEntries(NAMES.map(k=>[k,.5])),offsets:{},confidence:{},formation:'awaiting_evidence',experience:null,lastDay:null,watermark:null,mbti:null};
  return updateTraits(next,snapshot||{global:{},watermark:'empty'},now);
+}
+
+export function effectiveTraits(profile){
+ const current=profile.bootstrap?.contextScore;
+ if(!current?.ready)return {...profile.traits};
+ return Object.fromEntries(NAMES.map(k=>[k,clamp(profile.traits[k]+.70*(current.traits[k]-.5),.06,.94)]));
 }
 
 export function mbti(z,previous=null,day='initial'){
@@ -68,7 +80,7 @@ export function mbti(z,previous=null,day='initial'){
 }
 export function values(z){return {discovery:.65*z.curiosity+.35*z.flexibility,continuity:.65*z.planning+.35*(1-z.flexibility),companionship:.5*z.social_appetite+.3*z.warmth+.2*z.disclosure,care:.55*z.empathy+.45*z.warmth,competence:.55*z.analytical+.45*z.autonomy,self_expression:.55*z.expressiveness+.45*z.autonomy};}
 export function makePlan(profile,context={},semantic={},now=Date.now()){
- const days=profile.relationshipDays.length,R=days/(days+10);const cell=context.cell;const z={...profile.traits};
+ const days=profile.relationshipDays.length,R=days/(days+10);const cell=context.cell;const z=effectiveTraits(profile);
  for(const k of NAMES)z[k]=clamp(z[k]+(profile.offsets[cell]?.[k]||0));
  z.disclosure=clamp(z.disclosure+.25*R);z.expressiveness=clamp(z.expressiveness+.15*R);z.social_appetite=clamp(z.social_appetite+.15*R);
  const s={...(context.state||{})};if(s.washerFluidWarning===true)s.safetyWarning=true;const num=k=>finite(s[k])?s[k]:null;

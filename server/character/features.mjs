@@ -30,7 +30,7 @@ export function aggregate(trips,feedback=[],now=Date.now(),refills=[]){
   const min=i===1?12:i===4?16:8;if(rs.length>=min)global[key]={value:rs.reduce((s,r)=>s+r.value,0)/rs.length,n:rs.length,q:Math.min(1,rs.length/20)};}
  return {global,cells,cellCounts,watermark:hash([rows.map(r=>r.id),feedback.map(r=>r.id)]),at:now};
 }
-export const SIGNALS={modelYear:[1950,2200,31536000000],hvacOn:null,charging:null,washerFluidWarning:null,engineOilState:null,brakeFluidState:null,batteryCapacityRaw:null,rangeRemainingRaw:null,cruiseTargetSpeedRaw:null,tripDistanceRaw:null,tripTimeRaw:null,odometerKm:[0,10000000,30000],energyPercent:[0,100,30000],actualCabinC:[-40,80,30000],targetCabinC:[10,40,30000],parked:null,hvacAuto:null,passenger:null,drivingMode:null,cruiseControlState:null,safetyWarning:null,latitude:[-90,90,30000],longitude:[-180,180,30000],fanSpeedLevel:[0,100,30000],ambientBrightness:[0,100,30000],ambientColor:null,tripMinutes:[0,100000,30000]};
+export const SIGNALS={passengerCount:[0,8,30000],averageSpeedKmh:[0,250,30000],harshAccelPer100Km:[0,1000,30000],harshBrakePer100Km:[0,1000,30000],mediaVolumePercent:[0,100,30000],modelYear:[1950,2200,31536000000],hvacOn:null,charging:null,washerFluidWarning:null,engineOilState:null,brakeFluidState:null,batteryCapacityRaw:null,rangeRemainingRaw:null,cruiseTargetSpeedRaw:null,tripDistanceRaw:null,tripTimeRaw:null,odometerKm:[0,10000000,30000],energyPercent:[0,100,30000],actualCabinC:[-40,80,30000],targetCabinC:[10,40,30000],parked:null,hvacAuto:null,passenger:null,drivingMode:null,cruiseControlState:null,safetyWarning:null,latitude:[-90,90,30000],longitude:[-180,180,30000],fanSpeedLevel:[0,100,30000],ambientBrightness:[0,100,30000],ambientColor:null,tripMinutes:[0,100000,30000]};
 export function normalizeEvents(events,now=Date.now()){
  if(!Array.isArray(events)||events.length>200)throw new Error('INVALID_OBSERVATIONS');
  return events.map(e=>{if(!e||typeof e.id!=='string'||e.id.length>100||!Object.hasOwn(SIGNALS,e.signal)||!finite(e.at)||e.at>now+60000||e.at<now-7*DAY||!['real','emulator','test'].includes(e.source))throw new Error('INVALID_OBSERVATION');
@@ -52,6 +52,16 @@ export function ingest(state,events,now=Date.now()){
   const prior=state.observed[e.signal];
   if(e.signal==='energyPercent'&&finite(prior?.value)&&finite(e.value)&&e.value-prior.value>=5&&e.at-prior.at<3600000){
    state.refills=[...(state.refills||[]),{id:e.id,value:prior.value,at:e.at}].slice(-100);
+  }
+  if(e.signal==='odometerKm'&&finite(e.value)&&finite(prior?.value)){
+   const seconds=(e.at-prior.at)/1000,km=e.value-prior.value;
+   if(seconds>=1&&seconds<=60&&km>=0&&km/seconds*3600<=250){
+    state.speedSegments=[...(state.speedSegments||[]),{at:e.at,seconds,km}].filter(s=>e.at-s.at<=300000).slice(-60);
+    const duration=state.speedSegments.reduce((sum,s)=>sum+s.seconds,0);
+    if(state.speedSegments.length>=3&&duration>=30){
+     state.observed.averageSpeedKmh={id:'derived-speed-'+e.id,signal:'averageSpeedKmh',value:state.speedSegments.reduce((sum,s)=>sum+s.km,0)/duration*3600,at:e.at,source:e.source,derivedFrom:'odometer_delta_and_elapsed_time'};
+    }
+   }else if(seconds>60||km<0||seconds>0&&km/seconds*3600>250){state.speedSegments=[];delete state.observed.averageSpeedKmh;}
   }
   state.observed[e.signal]=e;
   // A timestamp is one observation frame: sample after all fields of that frame arrive.

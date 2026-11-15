@@ -23,8 +23,8 @@ test('Postgres: ownership, event deduplication, persisted plans, chat replay and
   const body={vehicleKey:'test-car',message:'안녕',turnId:randomUUID(),observations:pending};
   const concurrent=await Promise.all([request('chat',body),request('chat',body)]);
   const chat=concurrent[0];assert.equal(concurrent[1].reply,chat.reply);assert.equal(chat.status,200);assert.ok(chat.instructions.includes('energyPercent'));
-  assert.equal(chat.character.formation,'sdk_initial');assert.equal(chat.character.algorithm,'character.v2.1');
-  assert.ok(chat.character.axes.some(x=>Math.abs(x-.5)>.02));
+  assert.equal(chat.character.formation,'sdk_initial');assert.equal(chat.character.algorithm,'character.v3.0');
+  assert.ok(chat.character.scoring.ready);assert.equal(chat.character.scoring.groups.length>=4,true);
   assert.ok(chat.packet.facts.some(x=>x.signal==='batteryCapacityRaw'&&x.value==='77400.0'));
   assert.deepEqual(chat.packet.initialEvidence,chat.character.initialEvidence);
   for(const [k,v] of Object.entries(chat.character.traits)) {

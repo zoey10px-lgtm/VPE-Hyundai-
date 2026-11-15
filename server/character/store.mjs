@@ -18,7 +18,7 @@ export async function mutate(userId,vehicleId,fn){
   const r=await db.query('SELECT data FROM vpe_characters WHERE vehicle_id=$1 FOR UPDATE',[vehicleId]);const state=r.rows[0].data;
   const snapshot=state.features||aggregate(state.trips||[],state.profile.feedback||[],Date.now(),state.refills||[]);
   snapshot.bootstrap=bootstrapFromObserved(state.observed);
-  state.profile=migrateProfile(state.profile,snapshot);
+  state.profile=updateTraits(migrateProfile(state.profile,snapshot),snapshot);
   const result=await fn(state,db);await db.query('UPDATE vpe_characters SET data=$2::jsonb,updated_at=NOW() WHERE vehicle_id=$1',[vehicleId,JSON.stringify(state)]);return result;
  });
 }
