@@ -1,4 +1,5 @@
 import {clamp,finite,hash} from './engine.mjs';
+import {cruiseActive} from './bootstrap.mjs';
 const DAY=86400000;
 const median=a=>{a=[...a].sort((a,b)=>a-b);return a.length?(a[Math.floor((a.length-1)/2)]+a[Math.ceil((a.length-1)/2)])/2:null;};
 const quant=(a,p)=>{a=[...a].sort((a,b)=>a-b);return a.length?a[Math.floor((a.length-1)*p)]:null;};
@@ -29,13 +30,13 @@ export function aggregate(trips,feedback=[],now=Date.now(),refills=[]){
   const min=i===1?12:i===4?16:8;if(rs.length>=min)global[key]={value:rs.reduce((s,r)=>s+r.value,0)/rs.length,n:rs.length,q:Math.min(1,rs.length/20)};}
  return {global,cells,cellCounts,watermark:hash([rows.map(r=>r.id),feedback.map(r=>r.id)]),at:now};
 }
-export const SIGNALS={odometerKm:[0,10000000,30000],energyPercent:[0,100,30000],actualCabinC:[-40,80,30000],targetCabinC:[10,40,30000],parked:null,hvacAuto:null,passenger:null,drivingMode:null,cruiseControlState:null,safetyWarning:null,latitude:[-90,90,30000],longitude:[-180,180,30000],fanSpeedLevel:[0,100,30000],ambientBrightness:[0,100,30000],ambientColor:null,tripMinutes:[0,100000,30000]};
+export const SIGNALS={modelYear:[1950,2200,31536000000],hvacOn:null,charging:null,washerFluidWarning:null,engineOilState:null,brakeFluidState:null,batteryCapacityRaw:null,rangeRemainingRaw:null,cruiseTargetSpeedRaw:null,tripDistanceRaw:null,tripTimeRaw:null,odometerKm:[0,10000000,30000],energyPercent:[0,100,30000],actualCabinC:[-40,80,30000],targetCabinC:[10,40,30000],parked:null,hvacAuto:null,passenger:null,drivingMode:null,cruiseControlState:null,safetyWarning:null,latitude:[-90,90,30000],longitude:[-180,180,30000],fanSpeedLevel:[0,100,30000],ambientBrightness:[0,100,30000],ambientColor:null,tripMinutes:[0,100000,30000]};
 export function normalizeEvents(events,now=Date.now()){
  if(!Array.isArray(events)||events.length>200)throw new Error('INVALID_OBSERVATIONS');
  return events.map(e=>{if(!e||typeof e.id!=='string'||e.id.length>100||!Object.hasOwn(SIGNALS,e.signal)||!finite(e.at)||e.at>now+60000||e.at<now-7*DAY||!['real','emulator','test'].includes(e.source))throw new Error('INVALID_OBSERVATION');
   if(e.valid===false)return {...e,value:null};const bounds=SIGNALS[e.signal];if(bounds&&(!finite(e.value)||e.value<bounds[0]||e.value>bounds[1]))throw new Error('INVALID_SIGNAL_VALUE');
-  if(!bounds&&['parked','hvacAuto','passenger','safetyWarning'].includes(e.signal)&&typeof e.value!=='boolean')throw new Error('INVALID_SIGNAL_VALUE');
-  if(!bounds&&!['parked','hvacAuto','passenger','safetyWarning'].includes(e.signal)&&(typeof e.value!=='string'||e.value.length>100))throw new Error('INVALID_SIGNAL_VALUE');
+  if(!bounds&&['parked','hvacAuto','passenger','safetyWarning','hvacOn','charging','washerFluidWarning'].includes(e.signal)&&typeof e.value!=='boolean')throw new Error('INVALID_SIGNAL_VALUE');
+  if(!bounds&&!['parked','hvacAuto','passenger','safetyWarning','hvacOn','charging','washerFluidWarning'].includes(e.signal)&&(typeof e.value!=='string'||e.value.length>100))throw new Error('INVALID_SIGNAL_VALUE');
   return {id:e.id,signal:e.signal,value:e.value,at:e.at,source:e.source};});
 }
 export function freshState(observed,now=Date.now()){return Object.fromEntries(Object.entries(observed||{}).map(([k,e])=>[k,now-e.at<=(SIGNALS[k]?.[2]||15000)?e.value:null]));}
@@ -85,7 +86,7 @@ export function ingest(state,events,now=Date.now()){
     if(state.firstAt&&t.start-state.firstAt>=7*DAY)t.routeNovelty=cells.filter(c=>!known.has(c)).length/cells.length;
     state.routeCells=[...new Set([...known,...cells])].slice(-20000);
    }
-   const cc=t.samples.filter(x=>['ACTIVE','ENGAGED','ON','INACTIVE','OFF','STANDBY'].includes(x.cruise));t.cruiseRatio=cc.length?cc.filter(x=>['ACTIVE','ENGAGED','ON'].includes(x.cruise)).length/cc.length:null;
+   const cc=t.samples.map(x=>cruiseActive(x.cruise)).filter(x=>x!==null);t.cruiseRatio=cc.length?cc.filter(Boolean).length/cc.length:null;
    t.nightRatio=t.samples.length?t.samples.filter(x=>{const h=new Date(x.at+9*3600000).getUTCHours();return h>=22||h<6;}).length/t.samples.length:null;
    delete t.samples;
    state.trips.push(t);state.active=null;state.stoppedAt=null;state.anchor={km:s.odometerKm,at:e.at};closed=true;
@@ -94,3 +95,4 @@ export function ingest(state,events,now=Date.now()){
  state.firstAt??=events[0]?.at;state.seen=state.seen.slice(-5000);state.trips=state.trips.filter(t=>t.end>now-90*DAY);state.places=state.places.slice(-2000);
  return {state,closed};
 }
+

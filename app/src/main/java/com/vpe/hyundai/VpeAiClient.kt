@@ -112,7 +112,8 @@ object VpeAiClient {
         baseUrl: String, token: String, context: JSONObject, history: JSONArray, vehicleKey: String
     ): JSONObject =
         request(baseUrl, "/api/v3/realtime/token", token,
-            JSONObject().put("vehicleKey", vehicleKey).put("voicePresentation", context.optString("voicePresentation")))
+            JSONObject().put("vehicleKey", vehicleKey).put("voicePresentation", context.optString("voicePresentation"))
+                .put("observations", context.optJSONArray("observations") ?: JSONArray()))
 
     fun observe(baseUrl: String, token: String, vehicleKey: String, events: JSONArray): JSONObject =
         request(baseUrl, "/api/v3/observations", token,
@@ -156,8 +157,10 @@ object VpeAiClient {
             JSONObject().put("vehicleKey", vehicleKey)
                 .put("vehicleName", vehicleName)
                 .put("message", message)
+                .put("observations", context.optJSONArray("observations") ?: JSONArray())
                 .put("turnId", java.util.UUID.randomUUID().toString()))
         return answer.optString("reply").takeIf { it.isNotBlank() }
             ?: throw IOException("GPT 응답이 비어 있어.")
     }
 }
+

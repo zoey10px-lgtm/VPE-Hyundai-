@@ -19,6 +19,13 @@ export async function handleCharacter(req,res,url,body,callModel,createSecret){
  const key=body?.vehicleKey||url.searchParams.get('vehicleKey');if(typeof key!=='string'||!/^[A-Za-z0-9:_-]{4,128}$/.test(key))return respond(res,400,{error:'INVALID_VEHICLE_KEY'});
  await schema(); const db=await database();const existing=await db.query('SELECT * FROM vpe_vehicles WHERE user_id=$1 AND vehicle_key=$2',[user.id,key]);const vehicle=existing.rows[0]||await upsertVehicle(db,user.id,key,{},body?.vehicleName);
  const path=url.pathname,now=Date.now();
+ // A user can speak before the callback coalescer has flushed. Ingest that
+ // pending frame before constructing either a text or Realtime character plan.
+ if(body?.observations!==undefined){
+  let events;try{events=normalizeEvents(body.observations,now);}catch{return respond(res,400,{error:'INVALID_OBSERVATIONS'});}
+  await observations(user.id,vehicle.id,events,now);
+ }
+
  if(path.endsWith('/observations')&&req.method==='POST'){
   let events;try{events=normalizeEvents(body.events,now);}catch{return respond(res,400,{error:'INVALID_OBSERVATIONS'});}
   const result=await observations(user.id,vehicle.id,events,now);return respond(res,200,{accepted:result.accepted,duplicate:result.duplicate,character:report(result.profile),features:result.state.features});
@@ -63,3 +70,4 @@ export async function handleCharacter(req,res,url,body,callModel,createSecret){
   await recordResult(user.id,vehicle.id,turnId,true);return generated;
  });return respond(res,200,{reply,...output});
 }
+

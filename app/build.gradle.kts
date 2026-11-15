@@ -9,8 +9,8 @@ android {
         applicationId = "com.vpe.hyundai"
         minSdk = 28
         targetSdk = 35
-        versionCode = 28
-        versionName = "1.5.2"
+        versionCode = 29
+        versionName = "1.5.3"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
@@ -20,3 +20,4 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     testImplementation("junit:junit:4.13.2")
 }
+

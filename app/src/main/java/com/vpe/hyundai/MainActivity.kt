@@ -664,6 +664,7 @@ class MainActivity : Activity() {
         page.addView(label("MY VEHICLE  /  PERSONALITY REPORT", 12f, teal, true))
         page.addView(gap(9))
         val state = hpe
+        val character = serverCharacter?.takeIf { serverCharacterScope == activeChatScope }
         val currentIdentity = identity
         if (state == null || currentIdentity == null) {
             page.addView(label("차량 성향 분석 리포트", 26f, ink, true))
@@ -680,7 +681,7 @@ class MainActivity : Activity() {
         page.addView(row().apply {
             addView(tag(if (cachedReport) "저장된 분석" else if (demo) "시연 데이터" else "실제 SDK 관측 기반",
                 Color.rgb(231, 243, 255), violet))
-            addView(label("  ·  HPE 1.0", 12f, secondary))
+            addView(label("  ·  " + (character?.optString("algorithm") ?: "로컬 성격"), 12f, secondary))
         })
         page.addView(gap(11))
         page.addView(button("차량 이름 지정 / 수정", false) { showVehicleNameDialog() })
@@ -691,14 +692,17 @@ class MainActivity : Activity() {
         personality.addView(gap(13))
         personality.addView(label("MBTI", 13f, secondary))
         personality.addView(label(state.core.mbti, 52f, ink, true))
-        personality.addView(label("장기 성격 · SOC·온도 변경은 단기 감정, " +
-            "누적 운전·대화 패턴은 MBTI 연속 축에 반영", 13f, secondary))
+        personality.addView(label(if (character?.optString("formation") == "sdk_initial")
+            "SDK 차량 특성·설정으로 생성한 초기 인격 · 운행 이력과 대화로 성장해요"
+            else "차량의 초기 인격 + 누적 운행·대화 경험", 13f, secondary))
+        if (character?.optBoolean("mbtiProvisional") == true)
+            personality.addView(label("초기 성향 요약 · 경계에 있는 축은 경험이 쌓이며 달라져요", 12f, secondary))
         val axisNames = listOf("외향 E/I", "새로움 N/S", "분석 T/F", "계획 J/P")
         state.core.axes.forEachIndexed { idx, axis ->
             personality.addView(label(axisNames[idx] + "  " +
                 String.format(Locale.KOREA, "%.1f%%", axis * 100.0), 13f, secondary))
         }
-        personality.addView(label("관측 장기 입력 커버리지 " + percent(state.core.confidence),
+        personality.addView(label("성격 입력 반영 범위 " + percent(state.core.confidence),
             13f, violet, true))
         personality.addView(gap(10))
         val axes = state.core.axes
@@ -711,7 +715,16 @@ class MainActivity : Activity() {
             if (axes[3] >= .5) "계획적인 리듬을 좋아하는 성격이야."
                 else "상황에 맞춰 유연하게 움직이는 성격이야."
         ).joinToString(" ")
-        personality.addView(label(narrative, 17f, ink, true))
+        val evidence = character?.optJSONArray("initialEvidence")
+        personality.addView(label(if (character?.optString("formation") == "awaiting_evidence")
+            "SDK 성격 입력을 기다리고 있어요." else narrative, 17f, ink, true))
+        if (evidence != null && evidence.length() > 0) {
+            personality.addView(gap(8))
+            val sources = (0 until evidence.length()).map { evidence.getJSONObject(it) }
+                .distinctBy { it.optString("signal") }
+                .joinToString(" · ") { it.optString("signal") + "=" + it.opt("value") }
+            personality.addView(label("초기 인격 재료: " + sources, 12f, secondary))
+        }
         personality.addView(gap(12))
         personality.addView(label(
             "보이스 스타일  ·  " + currentIdentity.voiceBlueprint.presentation,
@@ -723,25 +736,31 @@ class MainActivity : Activity() {
         val traits = state.core.traits
         val traitNames = listOf("활동성", "호기심", "친밀감", "자신감", "신중함", "장난기", "표현력")
         val keywords = listOf("활기찬", "탐험가", "다정한", "당당한", "사려 깊은", "유쾌한", "표현이 풍부한")
-        val strongest = traits.indices.sortedByDescending { traits[it] }.take(3)
+        val serverKeywords = character?.optJSONArray("keywords")
+        val strongest = traits.indices.filter { kotlin.math.abs(traits[it] - .5) > .025 }
+            .sortedByDescending { kotlin.math.abs(traits[it] - .5) }.take(3)
+        val lowKeywords = listOf("차분한", "익숙함을 아끼는", "담백한", "함께 결정하는", "즉흥적인", "진중한", "절제해서 표현하는")
+        val keywordLabels = if (serverKeywords != null)
+            (0 until serverKeywords.length()).map { serverKeywords.optString(it) }
+            else strongest.map { if (traits[it] >= .5) keywords[it] else lowKeywords[it] }
 
         val highlights = card()
         highlights.addView(label("02   성격 키워드", 14f, teal, true))
         highlights.addView(gap(10))
         highlights.addView(label("이 차량을 가장 잘 표현하는 세 가지 특징", 17f, ink, true))
         highlights.addView(gap(14))
-        strongest.forEachIndexed { place, index ->
+        if (keywordLabels.isEmpty()) highlights.addView(label("성격 재료 수신을 기다리고 있어요.", 14f, secondary))
+        keywordLabels.forEachIndexed { place, keyword ->
             val feature = row().apply {
                 background = shape(Color.rgb(243, 242, 254), 16)
                 setPadding(d(15), d(13), d(14), d(13))
             }
             feature.addView(label("0" + (place + 1), 13f, violet, true),
                 LinearLayout.LayoutParams(d(37), -2))
-            feature.addView(label("#" + keywords[index], 17f, ink, true),
+            feature.addView(label("#" + keyword, 17f, ink, true),
                 LinearLayout.LayoutParams(0, -2, 1f))
-            feature.addView(label(traitNames[index], 13f, secondary))
             highlights.addView(feature)
-            if (place != strongest.lastIndex) highlights.addView(gap(8))
+            if (place != keywordLabels.lastIndex) highlights.addView(gap(8))
         }
         page.addView(highlights)
         page.addView(gap(15))
@@ -767,9 +786,22 @@ class MainActivity : Activity() {
             radarCard.addView(gap(6))
         }
         radarCard.addView(label(
-            "실측 장기 영향: 주행거리→활동성·자신감, 연식→자신감·신중함, " +
-                "운전 모드 다양성→N/S, 크루즈 사용→J/P, VPE 대화→E/I. " +
-                "관측 부족인 축과 T/F 축은 초기 시드 사용.", 13f, violet))
+            "SDK 초기 인격을 16개 성향으로 계산하며, 위 차트는 7개 항목으로 요약해요. " +
+                "현재 SOC·실내 온도·경고는 기분과 상황 반응에 반영돼요.", 13f, violet))
+        val dimensions = character?.optJSONObject("traits")
+        val dimensionNames = listOf("initiative" to "적극성", "expressiveness" to "표현력",
+            "disclosure" to "자기 개방", "social_appetite" to "동행 선호", "curiosity" to "호기심",
+            "abstraction" to "상상력", "analytical" to "분석성", "empathy" to "공감성",
+            "planning" to "계획성", "flexibility" to "유연성", "playfulness" to "장난기",
+            "directness" to "직설성", "warmth" to "다정함", "autonomy" to "자기 주관",
+            "reactivity" to "정서 반응", "recovery" to "기분 전환")
+        if (dimensions != null) {
+            radarCard.addView(gap(12))
+            radarCard.addView(label("채팅에 반영되는 16개 성향", 15f, teal, true))
+            dimensionNames.forEach { (key, name) ->
+                radarCard.addView(dataRow(name, percent(dimensions.optDouble(key, .5))))
+            }
+        }
         page.addView(radarCard)
         page.addView(gap(15))
 
@@ -1377,7 +1409,7 @@ class MainActivity : Activity() {
     private val characterIo = java.util.concurrent.Executors.newSingleThreadExecutor()
     private val chatIo = java.util.concurrent.Executors.newSingleThreadExecutor()
     private val observations by lazy { CharacterObservations(this) }
-    private var lastObservationFlush = 0L
+    private var observationFlushScheduled = false
     private var serverCharacter: JSONObject? = null
     private var serverCharacterScope = ""
 
@@ -1385,6 +1417,8 @@ class MainActivity : Activity() {
         if (character == null || scope != activeChatScope) return
         serverCharacter = character; serverCharacterScope = scope
         applyServerCharacter()
+        hpe?.let(hpeStore::save)
+        if (currentTab == "report") render("report")
     }
     private fun applyServerCharacter() {
         if (serverCharacterScope != activeChatScope) return
@@ -1394,30 +1428,49 @@ class MainActivity : Activity() {
         val traits = c.optJSONArray("legacyTraits") ?: return
         val confidence = c.optJSONObject("confidence")
         val weights = confidence?.keys()?.asSequence()?.map { confidence.optDouble(it, 0.0) }?.toList().orEmpty()
-        hpe = old.copy(core = HpeCore((0..3).map { axes.optDouble(it, .5) },
-            (0..6).map { traits.optDouble(it, .5) }, weights.average().takeIf { it.isFinite() } ?: 0.0, c.optString("mbti")),
+        val core = HpeCore((0..3).map { axes.optDouble(it, .5) },
+            (0..6).map { traits.optDouble(it, .5) }, weights.average().takeIf { it.isFinite() } ?: 0.0, c.optString("mbti"))
+        hpe = old.copy(core = core,
+            expression = HumanPersonalityEngine.express(core, old.affect, old.lastSignals),
             sources = listOf(c.optString("provenance"), c.optString("algorithm")))
     }
     private fun collectCharacterObservation(patch: VehicleReadings) {
         if (demo || sessionToken().isBlank()) return
-        val key = latest.vehicleKey ?: identity?.vehicleKey ?: return
+        val key = latest.vehicleKey ?: return
         val scope = accountName()+"|"+key
         val observedPatch = if (patch.evBatteryLevel == null && latest.evBatteryLevel != null) patch.copy(fuelPercent = null) else patch
         observations.append(scope, observedPatch, if (android.os.Build.FINGERPRINT.contains("generic") || android.os.Build.MODEL.contains("Emulator")) "emulator" else "real")
-        val now=System.currentTimeMillis()
-        if (now-lastObservationFlush<15000) return
-        lastObservationFlush=now
-        val token=sessionToken(); val endpoint=serverUrl()
+        // Coalesce the SDK callback burst, then drain every queued batch. The old
+        // 15-second gate stranded the last fields and allowed stale chat profiles.
+        if (observationFlushScheduled) return
+        observationFlushScheduled = true
+        mainHandler.postDelayed({
+            observationFlushScheduled = false
+            flushCharacterObservations(scope, key)
+        }, 500L)
+    }
+
+    private fun flushCharacterObservations(scope: String, key: String) {
+        val token = sessionToken(); val endpoint = serverUrl()
         characterIo.execute {
-            val batch=observations.batch(scope)
-            if (batch.length()>0) runCatching { VpeAiClient.observe(endpoint,token,key,batch) }
-                .onSuccess { response ->
-                    observations.acknowledge(scope,batch)
-                    runOnUiThread { acceptCharacter(response.optJSONObject("character"),scope) }
-                }.onFailure { error -> runOnUiThread {
-                    diagnosticLogs.add("CHARACTER_SYNC: "+error.message?.take(100))
-                    if (diagnosticLogs.size>80) diagnosticLogs.removeAt(0)
-                } }
+            try {
+                repeat(20) {
+                    if (scope != activeChatScope) return@execute
+                    val batch = observations.batch(scope)
+                    if (batch.length() == 0) return@execute
+                    val response = VpeAiClient.observe(endpoint, token, key, batch)
+                    observations.acknowledge(scope, batch)
+                    runOnUiThread { acceptCharacter(response.optJSONObject("character"), scope) }
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    diagnosticLogs.add("CHARACTER_SYNC: " + error.message?.take(100))
+                    if (diagnosticLogs.size > 80) diagnosticLogs.removeAt(0)
+                    if (scope == activeChatScope && !isFinishing && !isDestroyed) {
+                        mainHandler.postDelayed({ flushCharacterObservations(scope, key) }, 5_000L)
+                    }
+                }
+            }
         }
     }
 
@@ -1757,6 +1810,7 @@ class MainActivity : Activity() {
             .put("speechRate", value(voice?.speechRate))
         return JSONObject()
             .put("demo", demo)
+            .put("observations", if (demo) JSONArray() else activeChatScope?.let { observations.batch(it) } ?: JSONArray())
             .put("vehicleName", storedVehicleName())
             .put("voicePresentation", identity?.voiceBlueprint?.presentation ?: "미설정")
             .put("axes", JSONArray(state.core.axes))
@@ -2147,6 +2201,9 @@ class MainActivity : Activity() {
         cachedReport = false
         updateHumanPersonality()
         activateChatScope()
+        // Values can arrive before VIN/CRN; include that first connection frame
+        // now that its vehicle scope is known instead of losing early callbacks.
+        collectCharacterObservation(latest)
         startLivePolling()
         proactiveOnVehicleChange(firstConnection = true)
         syncCurrentVehicle(force = true)
@@ -2307,3 +2364,4 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 }
+

@@ -1,6 +1,7 @@
 import {database,inTransaction} from '../db.mjs';
 import {initialProfile,updateTraits,values,migrateProfile} from './engine.mjs';
 import {ingest,aggregate} from './features.mjs';
+import {bootstrapFromObserved} from './bootstrap.mjs';
 let boot;
 export async function schema(){
  if(!boot)boot=(async()=>{const db=await database();await db.query(`
@@ -15,7 +16,9 @@ export async function mutate(userId,vehicleId,fn){
   const fresh={profile:initialProfile(vehicleId),source:'real',observed:{},trips:[]};
   await db.query('INSERT INTO vpe_characters(vehicle_id,data) VALUES($1,$2::jsonb) ON CONFLICT DO NOTHING',[vehicleId,JSON.stringify(fresh)]);
   const r=await db.query('SELECT data FROM vpe_characters WHERE vehicle_id=$1 FOR UPDATE',[vehicleId]);const state=r.rows[0].data;
-  state.profile=migrateProfile(state.profile,state.features||aggregate(state.trips||[],state.profile.feedback||[],Date.now(),state.refills||[]));
+  const snapshot=state.features||aggregate(state.trips||[],state.profile.feedback||[],Date.now(),state.refills||[]);
+  snapshot.bootstrap=bootstrapFromObserved(state.observed);
+  state.profile=migrateProfile(state.profile,snapshot);
   const result=await fn(state,db);await db.query('UPDATE vpe_characters SET data=$2::jsonb,updated_at=NOW() WHERE vehicle_id=$1',[vehicleId,JSON.stringify(state)]);return result;
  });
 }
@@ -23,7 +26,7 @@ export async function observations(userId,vehicleId,events,now=Date.now()){
  return mutate(userId,vehicleId,async(state,db)=>{
   const unique=[];for(const e of events){const r=await db.query('INSERT INTO vpe_character_events(vehicle_id,event_id,at) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING event_id',[vehicleId,e.id,new Date(e.at)]);if(r.rowCount)unique.push(e);}
   const changed=ingest(state,unique,now);Object.assign(state,changed.state);
-  const snapshot=aggregate(state.trips,state.profile.feedback,now,state.refills||[]);state.profile=updateTraits(state.profile,snapshot,now);state.profile.values=values(state.profile.traits);state.features=snapshot;
+  const snapshot=aggregate(state.trips,state.profile.feedback,now,state.refills||[]);snapshot.bootstrap=bootstrapFromObserved(state.observed,now);state.profile=updateTraits(state.profile,snapshot,now);state.profile.values=values(state.profile.traits);state.features=snapshot;
   await db.query("DELETE FROM vpe_character_events WHERE vehicle_id=$1 AND at<NOW()-INTERVAL '8 days'",[vehicleId]);
   return {profile:state.profile,state,accepted:unique.length,duplicate:events.length-unique.length};
  });
@@ -46,3 +49,4 @@ export async function recordResult(userId,vehicleId,turnId,heard){
  return mutate(userId,vehicleId,async(state,db)=>{const r=await db.query('UPDATE vpe_character_turns SET heard=true WHERE vehicle_id=$1 AND turn_id=$2 AND heard=false RETURNING packet',[vehicleId,turnId]);
   if(heard&&r.rowCount){state.profile.actions.push(r.rows[0].packet.action.primary);state.profile.actions=state.profile.actions.slice(-30);}return {ok:true};});
 }
+

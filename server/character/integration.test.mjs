@@ -18,11 +18,27 @@ test('Postgres: ownership, event deduplication, persisted plans, chat replay and
   const event={id:randomUUID(),signal:'energyPercent',value:12,at:Date.now(),source:'real'};
   const first=await request('observations',{vehicleKey:'test-car',events:[event]});assert.equal(first.accepted,1);
   assert.equal((await request('observations',{vehicleKey:'test-car',events:[event]})).duplicate,1);
-  const body={vehicleKey:'test-car',message:'안녕',turnId:randomUUID()};
+  const at=Date.now();
+  const pending=Object.entries({odometerKm:0,passenger:true,cruiseControlState:'ENABLED',hvacOn:true,charging:false,batteryCapacityRaw:'77400.0'}).map(([signal,value])=>({id:randomUUID(),signal,value,at,source:'emulator'}));
+  const body={vehicleKey:'test-car',message:'안녕',turnId:randomUUID(),observations:pending};
   const concurrent=await Promise.all([request('chat',body),request('chat',body)]);
   const chat=concurrent[0];assert.equal(concurrent[1].reply,chat.reply);assert.equal(chat.status,200);assert.ok(chat.instructions.includes('energyPercent'));
+  assert.equal(chat.character.formation,'sdk_initial');assert.equal(chat.character.algorithm,'character.v2.1');
+  assert.ok(chat.character.axes.some(x=>Math.abs(x-.5)>.02));
+  assert.ok(chat.packet.facts.some(x=>x.signal==='batteryCapacityRaw'&&x.value==='77400.0'));
+  assert.deepEqual(chat.packet.initialEvidence,chat.character.initialEvidence);
+  for(const [k,v] of Object.entries(chat.character.traits)) {
+   // Conversation closeness may raise these three expression values; all other
+   // dimensions must exactly match the character shown in the report.
+   if(!['disclosure','expressiveness','social_appetite'].includes(k))assert.equal(chat.packet.traits[k],v,k);
+  }
+  const persona=await request('persona?vehicleKey=test-car',{},token,'GET');
+  assert.deepEqual(persona.character.traits,chat.character.traits);
   assert.equal((await request('chat',body)).reply,chat.reply);assert.equal(calls,1);
   const profiles=await db.query('SELECT data FROM vpe_characters c JOIN vpe_vehicles v ON c.vehicle_id=v.id WHERE v.user_id=$1',[uid]);
   assert.equal(profiles.rows[0].data.profile.actions.length,1);
+  const eventCount=await db.query('SELECT COUNT(*)::int n FROM vpe_character_events e JOIN vpe_vehicles v ON e.vehicle_id=v.id WHERE v.user_id=$1',[uid]);
+  assert.equal(eventCount.rows[0].n,1+pending.length);
  }finally{await db.query('DELETE FROM vpe_accounts WHERE id=$1',[uid]);}
 });
+

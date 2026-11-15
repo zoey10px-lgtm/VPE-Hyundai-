@@ -1,7 +1,7 @@
 name: Build VPE Android APK
 on:
   push:
-    branches: [main, feature/data-character-v2]
+    branches: [main, feature/data-character-v2, fix/sdk-initial-character]
   workflow_dispatch:
 jobs:
   apk:
@@ -60,3 +60,4 @@ jobs:
         with:
           name: VPE-Hyundai-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+

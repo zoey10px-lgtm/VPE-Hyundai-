@@ -1,6 +1,6 @@
 import {experienceTarget} from './experience.mjs';
 import {createHash} from 'node:crypto';
-export const VERSION='character.v2.0';
+export const VERSION='character.v2.1';
 export const NAMES=['initiative','expressiveness','disclosure','social_appetite','curiosity','abstraction','analytical','empathy','planning','flexibility','playfulness','directness','warmth','autonomy','reactivity','recovery'];
 export const W={initiative:{D01:.7},expressiveness:{D02:.8},disclosure:{D03:.6,D04:.2},social_appetite:{D01:.55,D04:.25},curiosity:{F01:.8,F02:.5,F04:.25,F12:.2},abstraction:{D05:.8},analytical:{D06:.8},empathy:{D07:.8},planning:{F03:.65,F05:.25,F06:.2,D08:.3},flexibility:{F04:.35,F10:.2,D09:.35},playfulness:{D10:.8},directness:{D11:.8},warmth:{D12:.8},autonomy:{D13:.8},reactivity:{D14:.8},recovery:{D15:-.8}};
 export const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x));
@@ -22,27 +22,38 @@ function target(base,features,k){
 }
 export function updateTraits(profile,snapshot,now=Date.now()){
  const day=new Date(now+9*3600000).toISOString().slice(0,10);
+ const bootstrap=snapshot.bootstrap||profile.bootstrap;
+ const initializing=profile.formation!=='formed';
+ const bootstrapHash=bootstrap?.available?hash(bootstrap.factors):null;
+ // Initial SDK settings take effect immediately, without waiting for a trip/day.
+ // Identical polls never reinforce or slowly saturate the personality.
+ if(initializing&&bootstrapHash&&bootstrapHash!==profile.bootstrapHash){
+  profile={...structuredClone(profile),traits:{...bootstrap.traits},confidence:{...bootstrap.confidence},
+   bootstrap,bootstrapHash,formation:'sdk_initial',version:profile.version+1};
+  profile.mbti=mbti(profile.traits,null,day);
+ }
  if(profile.lastDay===day||profile.watermark===snapshot.watermark)return profile;
  const next=structuredClone(profile),xp=experienceTarget(snapshot.global||{});let changed=false;
- const forming=profile.formation!=='formed';
  for(const k of NAMES){
   const dialogue=target(.5,Object.fromEntries(Object.entries(snapshot.global||{}).filter(([f])=>f.startsWith('D'))),k);
-  const goal=clamp(xp.traits[k]+.35*(dialogue.value-.5),.06,.94);
-  const q=Math.max(xp.confidence[k],dialogue.q);next.confidence[k]=q;
-  if(q>0){next.traits[k]=forming?goal:clamp(profile.traits[k]+clamp(.15*q*(goal-profile.traits[k]),-.015,.015),.06,.94);changed=true;}
+  const base=bootstrap?.available?bootstrap.traits[k]:.5;
+  const goal=clamp(base+(xp.traits[k]-.5)+.35*(dialogue.value-.5),.06,.94);
+  const q=Math.max(xp.confidence[k],dialogue.q);next.confidence[k]=Math.max(bootstrap?.confidence?.[k]||0,q);
+  if(q>0){next.traits[k]=initializing?goal:clamp(profile.traits[k]+clamp(.15*q*(goal-profile.traits[k]),-.015,.015),.06,.94);changed=true;}
   for(const[c,features]of Object.entries(snapshot.cells||{})){
    if((snapshot.cellCounts?.[c]||0)<8)continue;
    const cellTarget=experienceTarget(features);if(cellTarget.confidence[k]===0)continue;
    const n=snapshot.cellCounts[c],offset=clamp((cellTarget.traits[k]-xp.traits[k])*n/(n+10),-.15,.15);
-   next.offsets[c]??={};const old=next.offsets[c][k]||0;next.offsets[c][k]=forming?offset:old+clamp(offset-old,-.015,.015);
+   next.offsets[c]??={};const old=next.offsets[c][k]||0;next.offsets[c][k]=initializing?offset:old+clamp(offset-old,-.015,.015);
   }
  }
- if(changed){next.experience=xp.factors;next.formation='formed';next.version++;next.lastDay=day;next.watermark=snapshot.watermark;next.mbti=mbti(next.traits,profile.mbti,day);}
+ if(changed){next.bootstrap=bootstrap;next.bootstrapHash=bootstrapHash;next.experience=xp.factors;next.formation='formed';next.version++;next.lastDay=day;next.watermark=snapshot.watermark;next.mbti=mbti(next.traits,profile.mbti,day);}
  return changed?next:profile;
 }
 // Existing randomly seeded v1 profiles are re-formed from their actual stored evidence.
 export function migrateProfile(profile,snapshot,now=Date.now()){
  if(profile.algorithm===VERSION)return profile;
+ if(profile.algorithm==='character.v2.0')return updateTraits({...profile,algorithm:VERSION},snapshot||{global:{},watermark:'empty'},now);
  const next={...profile,algorithm:VERSION,base:Object.fromEntries(NAMES.map(k=>[k,.5])),traits:Object.fromEntries(NAMES.map(k=>[k,.5])),offsets:{},confidence:{},formation:'awaiting_evidence',experience:null,lastDay:null,watermark:null,mbti:null};
  return updateTraits(next,snapshot||{global:{},watermark:'empty'},now);
 }
@@ -60,9 +71,9 @@ export function makePlan(profile,context={},semantic={},now=Date.now()){
  const days=profile.relationshipDays.length,R=days/(days+10);const cell=context.cell;const z={...profile.traits};
  for(const k of NAMES)z[k]=clamp(z[k]+(profile.offsets[cell]?.[k]||0));
  z.disclosure=clamp(z.disclosure+.25*R);z.expressiveness=clamp(z.expressiveness+.15*R);z.social_appetite=clamp(z.social_appetite+.15*R);
- const s=context.state||{};const num=k=>finite(s[k])?s[k]:null;
+ const s={...(context.state||{})};if(s.washerFluidWarning===true)s.safetyWarning=true;const num=k=>finite(s[k])?s[k]:null;
  const hunger=num('energyPercent')===null?null:clamp((30-num('energyPercent'))/30);
- const delta=num('actualCabinC')!==null&&num('targetCabinC')!==null?num('targetCabinC')-num('actualCabinC'):null;
+ const delta=num('actualCabinC')!==null?(num('targetCabinC')??22)-num('actualCabinC'):null;
  const cold=delta===null?null:clamp((delta-1)/7),heat=delta===null?null:clamp((-delta-1)/7);
  const fatigue=num('tripMinutes')===null?null:clamp((num('tripMinutes')-60)/120);
  const N=finite(context.novelty)?clamp(context.novelty):0;
@@ -98,3 +109,4 @@ export function makePlan(profile,context={},semantic={},now=Date.now()){
   primary,secondary,expression:{energy,directness:z.directness,warmth:z.warmth,teasing:permitted?z.playfulness*R*(1-U):0,
    maxQuestions:V>=.5?Math.max(1,Math.ceil(3*z.expressiveness*z.social_appetite)):primary==='ask'||secondary==='ask'?Math.max(1,Math.ceil(3*z.expressiveness*z.social_appetite)):0,maxSentences,detail:detailed},affect:{excitement,at:now}};
 }
+

@@ -10,12 +10,23 @@ class CharacterObservations(context: Context) {
     private val prefs = context.getSharedPreferences("character_events_v1", Context.MODE_PRIVATE)
     @Synchronized fun append(scope: String, patch: VehicleReadings, source: String) {
         val at = System.currentTimeMillis()
-        val events = load(scope)
+        val stored = load(scope)
+        val events = JSONArray()
+        for (i in 0 until stored.length()) {
+            val event = stored.getJSONObject(i)
+            if (event.optLong("at") >= at - 6 * 86400000L) events.put(event)
+        }
         val values = mapOf("latitude" to patch.latitude, "longitude" to patch.longitude,"odometerKm" to patch.odometerKm, "energyPercent" to patch.energyPercent(),
             "actualCabinC" to patch.cabinTemperatureC, "targetCabinC" to patch.targetTemperatureC,
             "parked" to patch.parked, "passenger" to patch.passenger, "hvacAuto" to patch.hvacAuto, "drivingMode" to patch.drivingMode,
             "safetyWarning" to patch.safetyWarning, "cruiseControlState" to patch.cruiseControlState,
-            "fanSpeedLevel" to patch.fanSpeedLevel)
+            "fanSpeedLevel" to patch.fanSpeedLevel, "modelYear" to patch.modelYear,
+            "hvacOn" to patch.hvacOn, "charging" to patch.charging,
+            "washerFluidWarning" to patch.washerFluidWarning,
+            "engineOilState" to patch.engineOilState, "brakeFluidState" to patch.brakeFluidState,
+            "tripDistanceRaw" to patch.tripDistanceRaw, "tripTimeRaw" to patch.tripTimeRaw,
+            "rangeRemainingRaw" to patch.rangeRemainingRaw, "batteryCapacityRaw" to patch.batteryCapacityRaw,
+            "cruiseTargetSpeedRaw" to patch.cruiseTargetSpeedRaw)
         values.forEach { (signal, value) -> if (value != null) events.put(JSONObject()
             .put("id", UUID.randomUUID().toString()).put("signal", signal).put("value", value)
             .put("at", if (signal=="latitude" || signal=="longitude") patch.locationObservedAtMs ?: at else at).put("source", source)) }
@@ -36,3 +47,4 @@ class CharacterObservations(context: Context) {
     }
     private fun load(scope: String) = runCatching { JSONArray(prefs.getString(scope,"[]")) }.getOrDefault(JSONArray())
 }
+
