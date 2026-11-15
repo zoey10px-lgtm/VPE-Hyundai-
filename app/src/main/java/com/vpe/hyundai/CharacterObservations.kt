@@ -26,7 +26,8 @@ class CharacterObservations(context: Context) {
             "engineOilState" to patch.engineOilState, "brakeFluidState" to patch.brakeFluidState,
             "tripDistanceRaw" to patch.tripDistanceRaw, "tripTimeRaw" to patch.tripTimeRaw,
             "rangeRemainingRaw" to patch.rangeRemainingRaw, "batteryCapacityRaw" to patch.batteryCapacityRaw,
-            "cruiseTargetSpeedRaw" to patch.cruiseTargetSpeedRaw)
+            "cruiseTargetSpeedRaw" to patch.cruiseTargetSpeedRaw,
+            "sdkDiagnostic" to patch.sdkDiagnostic)
         values.forEach { (signal, value) -> if (value != null) events.put(JSONObject()
             .put("id", UUID.randomUUID().toString()).put("signal", signal).put("value", value)
             .put("at", if (signal=="latitude" || signal=="longitude") patch.locationObservedAtMs ?: at else at).put("source", source)) }

@@ -30,7 +30,7 @@ export function aggregate(trips,feedback=[],now=Date.now(),refills=[]){
   const min=i===1?12:i===4?16:8;if(rs.length>=min)global[key]={value:rs.reduce((s,r)=>s+r.value,0)/rs.length,n:rs.length,q:Math.min(1,rs.length/20)};}
  return {global,cells,cellCounts,watermark:hash([rows.map(r=>r.id),feedback.map(r=>r.id)]),at:now};
 }
-export const SIGNALS={passengerCount:[0,8,30000],averageSpeedKmh:[0,250,30000],harshAccelPer100Km:[0,1000,30000],harshBrakePer100Km:[0,1000,30000],mediaVolumePercent:[0,100,30000],modelYear:[1950,2200,31536000000],hvacOn:null,charging:null,washerFluidWarning:null,engineOilState:null,brakeFluidState:null,batteryCapacityRaw:null,rangeRemainingRaw:null,cruiseTargetSpeedRaw:null,tripDistanceRaw:null,tripTimeRaw:null,odometerKm:[0,10000000,30000],energyPercent:[0,100,30000],actualCabinC:[-40,80,30000],targetCabinC:[10,40,30000],parked:null,hvacAuto:null,passenger:null,drivingMode:null,cruiseControlState:null,safetyWarning:null,latitude:[-90,90,30000],longitude:[-180,180,30000],fanSpeedLevel:[0,100,30000],ambientBrightness:[0,100,30000],ambientColor:null,tripMinutes:[0,100000,30000]};
+export const SIGNALS={sdkDiagnostic:null,passengerCount:[0,8,30000],averageSpeedKmh:[0,250,30000],harshAccelPer100Km:[0,1000,30000],harshBrakePer100Km:[0,1000,30000],mediaVolumePercent:[0,100,30000],modelYear:[1950,2200,31536000000],hvacOn:null,charging:null,washerFluidWarning:null,engineOilState:null,brakeFluidState:null,batteryCapacityRaw:null,rangeRemainingRaw:null,cruiseTargetSpeedRaw:null,tripDistanceRaw:null,tripTimeRaw:null,odometerKm:[0,10000000,30000],energyPercent:[0,100,30000],actualCabinC:[-40,80,30000],targetCabinC:[10,40,30000],parked:null,hvacAuto:null,passenger:null,drivingMode:null,cruiseControlState:null,safetyWarning:null,latitude:[-90,90,30000],longitude:[-180,180,30000],fanSpeedLevel:[0,100,30000],ambientBrightness:[0,100,30000],ambientColor:null,tripMinutes:[0,100000,30000]};
 export function normalizeEvents(events,now=Date.now()){
  if(!Array.isArray(events)||events.length>200)throw new Error('INVALID_OBSERVATIONS');
  return events.map(e=>{if(!e||typeof e.id!=='string'||e.id.length>100||!Object.hasOwn(SIGNALS,e.signal)||!finite(e.at)||e.at>now+60000||e.at<now-7*DAY||!['real','emulator','test'].includes(e.source))throw new Error('INVALID_OBSERVATION');
@@ -47,6 +47,7 @@ export function ingest(state,events,now=Date.now()){
  for(let index=0;index<ordered.length;index++){
   const e=ordered[index];
   if(e.source==='test'&&state.source!=='test')continue;
+  if(e.signal==='sdkDiagnostic')continue;
   if(state.seen.includes(e.id)||e.at<(state.observed[e.signal]?.at??0))continue;
   state.seen.push(e.id);
   const prior=state.observed[e.signal];

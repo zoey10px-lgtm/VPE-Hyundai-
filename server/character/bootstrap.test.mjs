@@ -89,3 +89,10 @@ test('v3.0 upgrade preserves learned traits and memories',()=>{
  const next=migrateProfile(old,{global:{},cells:{},watermark:'empty'},now);
  assert.equal(next.algorithm,'character.v3.0.1');assert.deepEqual(next.traits,old.traits);assert.deepEqual(next.memories,old.memories);
 });
+
+test('SDK diagnostics are accepted but never become sensor facts or personality evidence',()=>{
+ const state=observe({...base,sdkDiagnostic:'CRUISE_STATE_ERROR: unsupported'});
+ assert.equal(state.observed.sdkDiagnostic,undefined);
+ assert.equal(report(state.profile).initialEvidence.some(e=>e.signal==='sdkDiagnostic'),false);
+ assert.equal(report(state.profile).scoring.normalized.cruise,0);
+});

@@ -29,7 +29,9 @@ data class VehicleReadings(
     val batteryCapacityRaw: String? = null,
     val cruiseControlState: String? = null,
     val cruiseTargetSpeedRaw: String? = null,
-    val fanSpeedLevel: Int? = null
+    val fanSpeedLevel: Int? = null,
+    // Event-only SDK status. Intentionally not merged into the vehicle state.
+    val sdkDiagnostic: String? = null
 ) {
     fun hasMeasuredDrivingData(): Boolean = odometerKm != null
     /**
@@ -93,3 +95,4 @@ object VehicleDataMapper {
                 ?: previous.fuelPercent
         )
 }
+

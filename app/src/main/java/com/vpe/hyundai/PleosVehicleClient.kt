@@ -13,6 +13,11 @@ import ai.pleos.playground.vehicle.listener.HvacTemperatureListener
 import ai.pleos.playground.vehicle.listener.HvacPowerStateListener
 import java.security.MessageDigest
 import ai.pleos.playground.vehicle.listener.EvBatteryStateOfChargeListener
+import ai.pleos.playground.vehicle.listener.CruiseControlStateListener
+import ai.pleos.playground.vehicle.listener.DrivingModeStateListener
+import ai.pleos.playground.vehicle.listener.SeatOccupancyListener
+import ai.pleos.playground.vehicle.constant.control.CruiseControl
+import ai.pleos.playground.vehicle.constant.control.DrivingModeType
 
 /** Typed, read-only Pleos Vehicle SDK 2.3.2 integration, confirmed from actual AAR. */
 class PleosVehicleClient(context: Context) {
@@ -24,9 +29,41 @@ class PleosVehicleClient(context: Context) {
     @Volatile private var fuelRegistered = false
     @Volatile private var evSocRegistered = false
     private val driverSeat = SeatArea(SeatValue.ROW_1_LEFT)
+    private val passengerSeat = SeatArea(SeatValue.ROW_1_RIGHT)
+    @Volatile private var cruiseListenerRegistered = false
+    @Volatile private var modeListenerRegistered = false
+    @Volatile private var passengerListenerRegistered = false
     @Volatile private var cabinListenerRegistered = false
     @Volatile private var targetListenerRegistered = false
     @Volatile private var hvacPowerListenerRegistered = false
+
+    private val cruiseListener = object : CruiseControlStateListener {
+        override fun onFailed(error: Exception) {
+            emitUpdate("CRUISE_LISTENER_ERROR: " + safeMessage(error), null)
+        }
+        override fun onCruiseControlStateUpdated(value: CruiseControl?) {
+            emitUpdate("CRUISE_STATE_UPDATE: " + (value?.toString() ?: "EMPTY"),
+                value?.let { VehicleReadings(cruiseControlState = it.toString()) })
+        }
+    }
+    private val modeListener = object : DrivingModeStateListener {
+        override fun onFailed(error: Exception) {
+            emitUpdate("DRIVE_MODE_LISTENER_ERROR: " + safeMessage(error), null)
+        }
+        override fun onDrivingModeStateUpdated(value: DrivingModeType?) {
+            emitUpdate("DRIVE_MODE_UPDATE: " + (value?.toString() ?: "EMPTY"),
+                value?.let { VehicleReadings(drivingMode = it.toString()) })
+        }
+    }
+    private val passengerListener = object : SeatOccupancyListener {
+        override fun onFailed(error: Exception) {
+            emitUpdate("PASSENGER_LISTENER_ERROR: " + safeMessage(error), null)
+        }
+        override fun onSeatOccupancyUpdated(value: Boolean?) {
+            emitUpdate("FRONT_PASSENGER_UPDATE: " + (value?.toString() ?: "EMPTY"),
+                value?.let { VehicleReadings(passenger = it) })
+        }
+    }
 
     private val cabinListener = object : HvacTemperatureListener {
         override fun onFailed(error: Exception) {
@@ -95,9 +132,16 @@ class PleosVehicleClient(context: Context) {
 
     private fun emitUpdate(message: String, reading: VehicleReadings?) {
         Log.i("VPE_PLEOS", message)
-        listenerReporter?.invoke(message, reading)
+        listenerReporter?.invoke(message, diagnosticReading(message, reading))
     }
 
+
+    private fun diagnosticReading(message: String, reading: VehicleReadings?): VehicleReadings? {
+        if (reading != null) return reading
+        val relevant = listOf("CRUISE_", "DRIVE_MODE_", "PASSENGER_", "FRONT_PASSENGER", "ODO_", "CABIN_", "TARGET_", "EV_SOC_", "FUEL_")
+        return if ((message.contains("ERROR") || message.contains("EMPTY") || message.contains("UNSUPPORTED")) && relevant.any { message.startsWith(it) })
+            VehicleReadings(sdkDiagnostic = message.take(96)) else null
+    }
 
     @Synchronized private fun ready() {
         if (!initialized) {
@@ -110,7 +154,7 @@ class PleosVehicleClient(context: Context) {
         listenerReporter = onReading
         fun report(message: String, readings: VehicleReadings?) {
             Log.i("VPE_PLEOS", message)
-            onReading(message, readings)
+            onReading(message, diagnosticReading(message, readings))
         }
         val environment = VehicleEnvironmentInspector.inspect(appContext)
         if (!environment.automotive) {
@@ -119,6 +163,21 @@ class PleosVehicleClient(context: Context) {
         }
         try {
             ready()
+            if (!cruiseListenerRegistered) try {
+                vehicle.getDrivingMode().registerCruiseControlState(cruiseListener)
+                cruiseListenerRegistered = true
+                report("CRUISE_LISTENER_READY: 변경 구독 등록", null)
+            } catch (e: Exception) { report("CRUISE_LISTENER_ERROR: " + safeMessage(e), null) }
+            if (!modeListenerRegistered) try {
+                vehicle.getDrivingMode().registerDrivingModeState(modeListener)
+                modeListenerRegistered = true
+                report("DRIVE_MODE_LISTENER_READY: 변경 구독 등록", null)
+            } catch (e: Exception) { report("DRIVE_MODE_LISTENER_ERROR: " + safeMessage(e), null) }
+            if (!passengerListenerRegistered) try {
+                vehicle.getSeat().registerSeatOccupancy(passengerSeat, passengerListener)
+                passengerListenerRegistered = true
+                report("PASSENGER_LISTENER_READY: 변경 구독 등록", null)
+            } catch (e: Exception) { report("PASSENGER_LISTENER_ERROR: " + safeMessage(e), null) }
             locationSource.start()
             report("SDK initialize() 호출 완료 · Vehicle Service 통신 성공은 데이터 응답으로 확인", null)
         } catch (error: Exception) {
@@ -255,7 +314,7 @@ class PleosVehicleClient(context: Context) {
         } catch (e: Exception) { report("HVAC_AUTO_ERROR: " + safeMessage(e), null) }
         try {
             vehicle.getSeat().getCurrentSeatOccupancy(SeatArea(SeatValue.ROW_1_RIGHT),
-                onComplete = { value -> report("FRONT_PASSENGER: " + value, value?.let { VehicleReadings(passenger = it) }) },
+                onComplete = { value -> report("FRONT_PASSENGER: " + (value?.toString() ?: "EMPTY"), value?.let { VehicleReadings(passenger = it) }) },
                 onFailed = { e -> report("PASSENGER_ERROR: " + safeMessage(e), null) })
         } catch (e: Exception) { report("PASSENGER_ERROR: " + safeMessage(e), null) }
 
@@ -546,6 +605,18 @@ class PleosVehicleClient(context: Context) {
         locationSource.stop()
         listenerReporter = null
         if (initialized) {
+            if (cruiseListenerRegistered) {
+                runCatching { vehicle.getDrivingMode().unregisterCruiseControlState(cruiseListener) }
+                cruiseListenerRegistered = false
+            }
+            if (modeListenerRegistered) {
+                runCatching { vehicle.getDrivingMode().unregisterDrivingModeState(modeListener) }
+                modeListenerRegistered = false
+            }
+            if (passengerListenerRegistered) {
+                runCatching { vehicle.getSeat().unregisterSeatOccupancy(passengerSeat, passengerListener) }
+                passengerListenerRegistered = false
+            }
             if (distanceRegistered) {
                 runCatching { vehicle.getOdometer().unregisterDistanceDriven(distanceListener) }
                 distanceRegistered = false
@@ -575,3 +646,4 @@ class PleosVehicleClient(context: Context) {
         }
     }
 }
+

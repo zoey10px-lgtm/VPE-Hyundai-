@@ -2,7 +2,7 @@ import {scorePersona,cruiseActive,TRAIT_NAMES} from './scoring.mjs';
 export {cruiseActive};
 const finite=x=>typeof x==='number'&&Number.isFinite(x);
 const clamp=x=>Math.max(0,Math.min(1,x));
-export const INPUT_ROLES={
+export const INPUT_ROLES={sdkDiagnostic:'sdk_status_only',
  averageSpeedKmh:'derived_or_external_context',harshAccelPer100Km:'optional_validated_kinematics',harshBrakePer100Km:'optional_validated_kinematics',mediaVolumePercent:'optional_media_context',passengerCount:'optional_seat_count',
  odometerKm:'initial_character_and_trip_history',modelYear:'initial_character',
  drivingMode:'current_driving_context_and_usage_history',cruiseControlState:'current_driving_context_and_usage_history',

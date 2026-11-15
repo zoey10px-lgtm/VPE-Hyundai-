@@ -674,7 +674,7 @@ class MainActivity : Activity() {
         page.addView(row().apply {
             addView(tag(if (cachedReport) "저장된 분석" else if (demo) "시연 데이터" else "실제 SDK 관측 기반",
                 Color.rgb(231, 243, 255), violet))
-            addView(label("  ·  앱 1.5.4 · " + (character?.optString("algorithm") ?: "서버 성격 연결 대기"), 12f, secondary))
+            addView(label("  ·  앱 1.5.5 · " + (character?.optString("algorithm") ?: "서버 성격 연결 대기"), 12f, secondary))
         })
         page.addView(gap(11))
         page.addView(button("차량 이름 지정 / 수정", false) { showVehicleNameDialog() })
