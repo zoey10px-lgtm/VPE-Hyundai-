@@ -20,9 +20,10 @@ test('Postgres: ownership, event deduplication, persisted plans, chat replay and
   assert.equal((await request('observations',{vehicleKey:'test-car',events:[event]})).duplicate,1);
   const at=Date.now();
   const pending=Object.entries({odometerKm:0,passenger:true,cruiseControlState:'ENABLED',hvacOn:true,charging:false,batteryCapacityRaw:'77400.0'}).map(([signal,value])=>({id:randomUUID(),signal,value,at,source:'emulator'}));
-  const body={vehicleKey:'test-car',message:'안녕',turnId:randomUUID(),observations:pending};
+  const body={vehicleKey:'test-car',vehicleName:'삣삐',message:'삣삐야, 안녕',turnId:randomUUID(),observations:pending};
   const concurrent=await Promise.all([request('chat',body),request('chat',body)]);
   const chat=concurrent[0];assert.equal(concurrent[1].reply,chat.reply);assert.equal(chat.status,200);assert.ok(chat.instructions.includes('energyPercent'));
+  assert.equal(chat.packet.identity.name,'삣삐');assert.ok(chat.instructions.includes('너 자신의 이름(JSON 데이터): \"삣삐\"'));assert.equal(chat.packet.vehicle.current.batteryCapacityRaw,'77400.0');
   assert.equal(chat.character.formation,'sdk_initial');assert.equal(chat.character.algorithm,'character.v3.0.1');
   assert.ok(chat.character.scoring.ready);assert.equal(chat.character.scoring.groups.length>=4,true);
   assert.ok(chat.packet.facts.some(x=>x.signal==='batteryCapacityRaw'&&x.value==='77400.0'));

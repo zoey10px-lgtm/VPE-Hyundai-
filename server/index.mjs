@@ -7,6 +7,7 @@ import { validProactiveKind, proactivePrompt } from "./proactive-events.mjs";
 import { verifyDatabaseStartup } from "./preflight.mjs";
 import {vehiclePersonaProfile} from "./vehicle-persona-policy.mjs";
 import {handleCharacter} from "./character/api.mjs";
+import {CONVERSATION_VERSION} from "./character/context.mjs";
 import {VERSION as CHARACTER_VERSION} from "./character/engine.mjs";
 
 const PORT = Number(process.env.PORT || 10000);
@@ -174,7 +175,7 @@ const httpServer=createServer(async(req,res)=>{
   const url=new URL(req.url||"/","http://localhost");
   const path=url.pathname;
   if(req.method==="GET" && path==="/health"){
-    return respond(res,200,{ok:true,apiRevision:3,characterAlgorithm:CHARACTER_VERSION,openaiConfigured:Boolean(OPENAI_KEY),
+    return respond(res,200,{ok:true,apiRevision:3,characterAlgorithm:CHARACTER_VERSION,conversationVersion:CONVERSATION_VERSION,openaiConfigured:Boolean(OPENAI_KEY),
       databaseConfigured:databaseConfigured(),accessConfigured:Boolean(LEGACY_APP_TOKEN)});
   }
   if(!path.startsWith("/api/")) return respond(res,404,{error:"NOT_FOUND"});

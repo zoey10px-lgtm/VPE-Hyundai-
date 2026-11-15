@@ -2,6 +2,10 @@ import {compile} from './context.mjs';
 export function responseIssues(reply,packet){
  const issues=[];
  if((reply.match(/[?？]/g)||[]).length>(packet.expression.maxQuestions||0))issues.push('허용된 질문 수를 초과했다. 질문을 줄이고 자기 반응·의견으로 이어라.');
+ const name=packet.identity?.name,userText=packet.latestUserText||'';
+ if(name&&userText.includes(name)&&!/(욕|비속어|나쁜 말|험한 말)/.test(userText)&&
+    /(욕설|비속어|욕은|욕하지|욕하지는|욕을|험한 말|나쁜 말|예쁜 말|말을 예쁘게|그런 말은)/.test(reply))
+  issues.push('등록된 자기 이름을 비속어로 오해했다. 이름은 '+JSON.stringify(name)+'이다. 자신을 부르는 말로 알아듣고 자연스럽게 호응하라.');
  const normalized=reply.replace(/\s/g,'');
  if((packet.performance?.examples||[]).some(e=>e.reply.replace(/\s/g,'').length>=12&&normalized.includes(e.reply.replace(/\s/g,''))))issues.push('참고 예시 문장을 복사했다. 같은 성격으로 완전히 새로운 문장을 써라.');
  if(!packet.memories?.length&&/(바다.{0,15}익숙|익숙한\s*(바다|해변|풍경)|전에.{0,8}(갔|왔)|지난번에.{0,8}(갔|왔))/.test(reply))issues.push('근거 없는 방문 경험을 만들었다. 경험 주장을 빼고 현재 취향·기대·상상만 표현하라.');

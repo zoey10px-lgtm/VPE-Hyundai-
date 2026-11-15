@@ -8,6 +8,7 @@ import {normalizeEvents,freshState,cellOf} from './features.mjs';
 import {makePlan,hash} from './engine.mjs';
 import {packetFor,compile,report,voiceProfile} from './context.mjs';
 import {extractMeaning} from './semantic.mjs';
+import {conversationName,conversationVehicle} from './conversation.mjs';
 const respond=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
 const repliesInFlight=new Map();
 async function oneReply(key,fn){if(repliesInFlight.has(key))return repliesInFlight.get(key);const task=Promise.resolve().then(fn);repliesInFlight.set(key,task);try{return await task;}finally{repliesInFlight.delete(key);}}
@@ -45,13 +46,13 @@ export async function handleCharacter(req,res,url,body,callModel,createSecret){
  let packet,compiled,profile,meaning={};
  if(cached.rowCount){packet=cached.rows[0].packet;compiled=compile(packet);profile=await mutate(user.id,vehicle.id,s=>s.profile);}
  else{
-  meaning=token?{}:await extractMeaning(text,history);
+  meaning=token?{}:await extractMeaning(text,history,{vehicleName:conversationName(body.vehicleName,vehicle.display_name)});
   const result=await mutate(user.id,vehicle.id,async(s,conn)=>{
    const priorPlan=await conn.query('SELECT packet FROM vpe_character_turns WHERE vehicle_id=$1 AND turn_id=$2',[vehicle.id,turnId]);
    if(priorPlan.rowCount)return {packet:priorPlan.rows[0].packet,profile:s.profile};
    applyMeaning(s.profile,meaning,text,turnId,now);
    const state=freshState(s.observed,now);const memories=memoriesFor(s.profile,text,now);
-   const context={state,userTurn:true,cell:s.active?cellOf(s.active):null,memories,proactiveAllowed:false,preferences:Object.keys(s.profile.preferences)};
+   const context={state,vehicleName:conversationName(body.vehicleName,vehicle.display_name),vehicle:conversationVehicle(s.observed,now),userTurn:true,cell:s.active?cellOf(s.active):null,memories,proactiveAllowed:false,preferences:Object.keys(s.profile.preferences)};
    if(s.profile.preferences.quietUntil>now)meaning.quiet=true;
    const plan=makePlan(s.profile,context,meaning,now);s.profile.affect=plan.affect;
    const p=packetFor(s.profile,plan,context,turnId);p.fallback=meaning.fallback||null;p.history=history.slice(-12).map(m=>({...m,content:m.content.slice(0,1500)}));p.latestUserText=text;
