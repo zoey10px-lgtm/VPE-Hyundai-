@@ -43,6 +43,9 @@ jobs:
             adb pull /sdcard/Android/data/com.vpe.hyundai/files/ui-report-top.png /tmp/ui-report-top.png
             adb pull /sdcard/Android/data/com.vpe.hyundai/files/ui-report-gauges.png /tmp/ui-report-gauges.png
             adb pull /sdcard/Android/data/com.vpe.hyundai/files/ui-home-cards.png /tmp/ui-home-cards.png
+            adb pull /sdcard/Android/data/com.vpe.hyundai/files/ui-trait-evidence.png /tmp/ui-trait-evidence.png
+            adb pull /sdcard/Android/data/com.vpe.hyundai/files/ui-name-editor.png /tmp/ui-name-editor.png
+            adb pull /sdcard/Android/data/com.vpe.hyundai/files/ui-named-report.png /tmp/ui-named-report.png
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -53,6 +56,9 @@ jobs:
             /tmp/ui-report-top.png
             /tmp/ui-report-gauges.png
             /tmp/ui-home-cards.png
+            /tmp/ui-trait-evidence.png
+            /tmp/ui-name-editor.png
+            /tmp/ui-named-report.png
             /tmp/vpe_frame_1.png
             /tmp/vpe_frame_2.png
             /tmp/vpe_login_screen.png

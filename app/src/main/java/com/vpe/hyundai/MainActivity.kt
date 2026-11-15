@@ -3,6 +3,7 @@ package com.vpe.hyundai
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.Dialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -218,7 +219,7 @@ class MainActivity : Activity() {
         elevation = d(2).toFloat()
     }
 
-    private fun scoreGauge(name: String, value: Double, tint: Int = violet): LinearLayout =
+    private fun scoreGauge(name: String, value: Double, tint: Int = violet, explain: Boolean = false): LinearLayout =
         column(12).apply {
             background = shape(Color.rgb(247, 247, 253), 16)
             val safe = if (value.isFinite()) value.coerceIn(0.0, 1.0) else 0.0
@@ -226,6 +227,13 @@ class MainActivity : Activity() {
                 addView(label(name, 14f, ink, true), LinearLayout.LayoutParams(0, -2, 1f))
                 addView(label(percent(safe), 16f, tint, true))
             })
+            if (explain) {
+                isClickable = true
+                isFocusable = true
+                contentDescription = name + " " + percent(safe) + ", 분석 근거 보기"
+                setOnClickListener { showTraitEvidence(name, safe) }
+                addView(label("분석 근거 보기  ›", 11f, secondary))
+            }
             addView(gap(9))
             addView(ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
                 max = 1000
@@ -237,11 +245,11 @@ class MainActivity : Activity() {
             }, LinearLayout.LayoutParams(-1, d(7)))
         }
 
-    private fun gaugeGrid(parent: LinearLayout, values: List<Pair<String, Double>>, tint: Int = violet) {
+    private fun gaugeGrid(parent: LinearLayout, values: List<Pair<String, Double>>, tint: Int = violet, explain: Boolean = false) {
         values.chunked(2).forEach { pair ->
             parent.addView(row().apply {
                 pair.forEachIndexed { index, (name, value) ->
-                    addView(scoreGauge(name, value, tint), LinearLayout.LayoutParams(0, -2, 1f).apply {
+                    addView(scoreGauge(name, value, tint, explain), LinearLayout.LayoutParams(0, -2, 1f).apply {
                         if (index > 0) leftMargin = d(10)
                     })
                 }
@@ -272,7 +280,8 @@ class MainActivity : Activity() {
     }
 
     private fun readableState(value: String): String = when (value.uppercase(Locale.ROOT)) {
-        "TRUE", "ON", "ENABLED", "ACTIVE" -> "켜짐"
+        "TRUE", "ON", "ACTIVE", "ACTIVATED" -> "켜짐"
+        "ENABLED", "STANDBY" -> "준비 · 대기"
         "FALSE", "OFF", "DISABLED", "INACTIVE" -> "꺼짐"
         "READY" -> "준비됨"
         "NOT_READY", "NOT READY" -> "준비 전"
@@ -381,7 +390,14 @@ class MainActivity : Activity() {
     }
 
     private fun scrollContent(): LinearLayout {
-        val scroll = ScrollView(this).apply {
+        val scroll = object : ScrollView(this) {
+            override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                pageTouching = event.actionMasked != MotionEvent.ACTION_UP &&
+                    event.actionMasked != MotionEvent.ACTION_CANCEL
+                lastPageInteraction = android.os.SystemClock.uptimeMillis()
+                return super.dispatchTouchEvent(event)
+            }
+        }.apply {
             isFillViewport = false
             clipToPadding = false
             isVerticalScrollBarEnabled = false
@@ -389,12 +405,6 @@ class MainActivity : Activity() {
         val inner = column().apply { setPadding(d(22), d(12), d(22), d(26)) }
         scroll.addView(inner)
         scroll.isFocusableInTouchMode = true
-        scroll.setOnTouchListener { _, event ->
-            pageTouching = event.actionMasked != MotionEvent.ACTION_UP &&
-                event.actionMasked != MotionEvent.ACTION_CANCEL
-            lastPageInteraction = android.os.SystemClock.uptimeMillis()
-            false
-        }
         scroll.setOnScrollChangeListener { _: View, _: Int, _: Int, _: Int, _: Int ->
             lastPageInteraction = android.os.SystemClock.uptimeMillis()
         }
@@ -730,35 +740,194 @@ class MainActivity : Activity() {
     private fun vehicleNameKey(key: String) = accountName().ifBlank { "guest" } + "|" + key
 
     private fun storedVehicleName(): String {
-        val id = identity ?: return "내 차량"
+        val id = identity ?: return "내 차"
         val saved = getSharedPreferences("vpe_vehicle_names", MODE_PRIVATE)
             .getString(vehicleNameKey(id.vehicleKey), "").orEmpty().trim()
-        return saved.ifBlank { if (demo) "시연 차량" else "내 차량" }
+        return saved.ifBlank { "내 차" }
+    }
+
+    private fun pendingReplyText(): String {
+        val name = storedVehicleName()
+        val last = name.lastOrNull()
+        val particle = if (last != null && last in '가'..'힣' && (last.code - '가'.code) % 28 != 0) "이" else "가"
+        return name + particle + " 답변을 생각하고 있어요…"
+    }
+
+    /** Consistent product dialogs, with bounded height on Automotive displays. */
+    private fun presentSheet(body: LinearLayout): Dialog {
+        val dialog = Dialog(this)
+        val wrap = column(22).apply { background = shape(white, 26) }
+        val scroll = ScrollView(this).apply { isFillViewport = false; addView(body) }
+        wrap.addView(scroll)
+        dialog.setContentView(wrap)
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.show()
+        val metrics = resources.displayMetrics
+        dialog.window?.setLayout(minOf(d(600), metrics.widthPixels - d(32)), -2)
+        wrap.post {
+            val maxHeight = (metrics.heightPixels * .82).toInt()
+            if (wrap.height > maxHeight) dialog.window?.setLayout(minOf(d(600), metrics.widthPixels - d(32)), maxHeight)
+        }
+        return dialog
     }
 
     private fun showVehicleNameDialog() {
         val id = identity ?: return
         val existing = getSharedPreferences("vpe_vehicle_names", MODE_PRIVATE)
             .getString(vehicleNameKey(id.vehicleKey), "").orEmpty()
+        val body = column()
+        body.addView(label("VEHICLE PROFILE", 12f, teal, true))
+        body.addView(gap(10))
+        body.addView(label("내 차의 이름", 27f, ink, true))
+        body.addView(gap(8))
+        body.addView(label("리포트와 대화에서 사용할 이름을 설정해 주세요.", 15f, secondary))
+        body.addView(gap(22))
+        body.addView(label("차량 이름", 14f, ink, true))
+        body.addView(gap(8))
         val entry = EditText(this).apply {
-            hint = "예: 내 아이오닉 5, 우리 차"
+            hint = "이름을 입력해 주세요"
             setSingleLine(true)
+            textSize = 18f
+            setTextColor(ink)
+            setPadding(d(16), d(14), d(16), d(14))
+            background = shape(Color.rgb(247, 247, 253), 15, line)
+            filters = arrayOf(android.text.InputFilter.LengthFilter(30))
             setText(existing)
             setSelection(text.length)
         }
-        AlertDialog.Builder(this)
-            .setTitle("차량 이름 지정")
-            .setMessage("현재 연동 SDK에서 차종명이 확인되지 않아, 원하는 차량 이름을 직접 정할 수 있어요.")
-            .setView(entry)
-            .setNegativeButton("취소", null)
-            .setPositiveButton("저장") { _, _ ->
-                val updated = entry.text.toString().trim().take(30)
+        body.addView(entry)
+        body.addView(gap(8))
+        body.addView(label("최대 30자 · 이름이 없으면 ‘내 차’로 표시됩니다.", 12f, secondary))
+        body.addView(gap(22))
+        lateinit var dialog: Dialog
+        body.addView(row().apply {
+            addView(button("취소", false) { dialog.dismiss() }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(button("이름 저장") {
+                val updated = entry.text.toString().trim()
                 getSharedPreferences("vpe_vehicle_names", MODE_PRIVATE).edit()
                     .putString(vehicleNameKey(id.vehicleKey), updated).apply()
+                dialog.dismiss()
                 syncCurrentVehicle(force = true)
                 render("report")
+            }, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = d(10) })
+        })
+        dialog = presentSheet(body)
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+    }
+
+    private fun traitProjection(name: String): Map<String, Double> = when (name) {
+        "활동성" -> mapOf("initiative" to .5, "expressiveness" to .5)
+        "호기심" -> mapOf("curiosity" to 1.0)
+        "친밀감", "다정함" -> mapOf("warmth" to 1.0)
+        "자신감", "자기 주관" -> mapOf("autonomy" to 1.0)
+        "신중함", "계획성" -> mapOf("planning" to 1.0)
+        "장난기" -> mapOf("playfulness" to 1.0)
+        "표현력" -> mapOf("expressiveness" to 1.0)
+        "적극성" -> mapOf("initiative" to 1.0)
+        "자기 개방" -> mapOf("disclosure" to 1.0)
+        "동행 선호" -> mapOf("social_appetite" to 1.0)
+        "상상력" -> mapOf("abstraction" to 1.0)
+        "분석성" -> mapOf("analytical" to 1.0)
+        "공감성" -> mapOf("empathy" to 1.0)
+        "유연성" -> mapOf("flexibility" to 1.0)
+        "직설성" -> mapOf("directness" to 1.0)
+        "정서 반응" -> mapOf("reactivity" to 1.0)
+        "기분 전환" -> mapOf("recovery" to 1.0)
+        "외향 (E)" -> mapOf("initiative" to .35, "social_appetite" to .30, "disclosure" to .20, "expressiveness" to .15)
+        "새로움 (N)" -> mapOf("abstraction" to .65, "curiosity" to .35)
+        "분석 (T)" -> mapOf("analytical" to .5, "empathy" to -.5)
+        "계획 (J)" -> mapOf("planning" to .5, "flexibility" to -.5)
+        else -> emptyMap()
+    }
+
+    private fun showTraitEvidence(name: String, displayed: Double) {
+        val character = serverCharacter?.takeIf { serverCharacterScope == activeChatScope }
+        val scoring = character?.optJSONObject("scoring")
+        val normalized = scoring?.optJSONObject("normalized")
+        val contributions = scoring?.optJSONObject("contributions")
+        val core = character?.optJSONObject("coreTraits")
+        val projection = traitProjection(name)
+        val body = column()
+        body.addView(label("PERSONALITY INSIGHT", 12f, teal, true))
+        body.addView(gap(10))
+        body.addView(label(name + "  " + percent(displayed), 28f, ink, true))
+        body.addView(gap(8))
+        body.addView(label(storedVehicleName() + "의 성향에 반영된 항목입니다.", 15f, secondary))
+        body.addView(gap(18))
+        if (scoring?.optBoolean("ready") == true && normalized != null && contributions != null && core != null && projection.isNotEmpty()) {
+            val constant = if (name == "분석 (T)" || name == "계획 (J)") .5 else 0.0
+            val base = constant + projection.entries.sumOf { (key, weight) -> core.optDouble(key, .5) * weight }
+            body.addView(scoreGauge("기본 성향 · 누적 경험", base, teal))
+            body.addView(gap(12))
+            val inputNames = linkedMapOf("passengers" to "동승자", "speed" to "평균 속도",
+                "acceleration" to "급가속", "braking" to "급감속", "time" to "분석 시간대",
+                "comfort" to "실내 쾌적도", "media" to "미디어 음량", "cruise" to "크루즈 상태",
+                "mode" to "주행 모드", "energy" to "에너지 잔량")
+            val terms = inputNames.filter { !normalized.isNull(it.key) }.map { (key, label) ->
+                // Use the actual server terms; no duplicated scoring coefficients.
+                val delta = .70 * projection.entries.sumOf { (trait, weight) ->
+                    (contributions.optJSONObject(trait)?.optDouble(key, 0.0) ?: 0.0) * weight
+                }
+                Triple(key, label, delta)
+            }.sortedByDescending { kotlin.math.abs(it.third) }
+            terms.forEach { (key, labelText, delta) ->
+                val item = column(12).apply { background = shape(Color.rgb(247, 247, 253), 15) }
+                item.addView(row().apply {
+                    addView(label(labelText, 15f, ink, true), LinearLayout.LayoutParams(0, -2, 1f))
+                    addView(label(String.format(Locale.KOREA, "%+.1f%%p", delta), 17f,
+                        if (delta < 0) violet else teal, true))
+                })
+                item.addView(gap(5))
+                item.addView(label(evidenceValue(key, character?.optJSONArray("initialEvidence")) +
+                    " · " + if (kotlin.math.abs(delta) < .05) "중립 반영" else if (delta > 0) "성향을 높이는 방향" else "성향을 낮추는 방향", 13f, secondary))
+                val magnitude = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    max = 1000
+                    progress = (kotlin.math.abs(delta) / 20.0 * 1000).toInt().coerceIn(0, 1000)
+                    progressTintList = android.content.res.ColorStateList.valueOf(if (delta < 0) violet else teal)
+                    progressBackgroundTintList = android.content.res.ColorStateList.valueOf(line)
+                }
+                item.addView(gap(8))
+                item.addView(magnitude, LinearLayout.LayoutParams(-1, d(6)))
+                body.addView(item)
+                body.addView(gap(9))
             }
-            .show()
+            val adjustment = displayed * 100 - base * 100 - terms.sumOf { it.third }
+            if (kotlin.math.abs(adjustment) >= .05) {
+                body.addView(label("표시 범위 보정  " + String.format(Locale.KOREA, "%+.1f%%p", adjustment), 13f, secondary))
+                body.addView(gap(8))
+            }
+            body.addView(label("기본 성향에 위 항목들의 기여도를 더해 현재 점수를 계산합니다. %p는 점수의 증감이며, 막대는 기여도 절댓값(최대 20%p)을 나타냅니다. 미수신 항목은 중립으로 처리합니다.", 13f, secondary))
+        } else {
+            body.addView(label(if (demo) "시연용 데이터로 계산된 성향입니다. 실제 차량을 연결하면 수신 항목별 분석 근거를 확인할 수 있습니다."
+                else "항목별 계산 결과를 수신하고 있습니다. 차량 데이터가 동기화되면 이곳에 반영 항목과 기여도가 표시됩니다.", 15f, secondary))
+        }
+        body.addView(gap(18))
+        lateinit var dialog: Dialog
+        body.addView(button("확인") { dialog.dismiss() })
+        dialog = presentSheet(body)
+    }
+
+    private fun evidenceValue(key: String, evidence: JSONArray?): String {
+        fun get(signal: String): Any? = (0 until (evidence?.length() ?: 0))
+            .mapNotNull { evidence?.optJSONObject(it) }.firstOrNull { it.optString("signal") == signal }?.opt("value")
+        fun number(signal: String, format: String): String? = (get(signal) as? Number)?.toDouble()?.let {
+            String.format(Locale.KOREA, format, it)
+        }
+        return when (key) {
+            "passengers" -> number("passengerCount", "동승자 %.0f명") ?: when (get("passenger")) {
+                true -> "동승자 감지"; false -> "동승자 없음"; else -> "수신된 동승 지표"
+            }
+            "speed" -> number("averageSpeedKmh", "평균 %.1f km/h") ?: "관측 주행거리와 시간으로 산출"
+            "acceleration" -> number("harshAccelPer100Km", "100 km당 %.1f회") ?: "수신된 급가속 지표"
+            "braking" -> number("harshBrakePer100Km", "100 km당 %.1f회") ?: "수신된 급감속 지표"
+            "time" -> "한국 시간대와 평일·주말 반영"
+            "comfort" -> listOfNotNull(number("actualCabinC", "실내 %.1f°C"), number("targetCabinC", "목표 %.1f°C")).joinToString(" / ").ifBlank { "실내와 목표 온도의 차이 반영" }
+            "media" -> number("mediaVolumePercent", "음량 %.0f%%") ?: "수신된 미디어 음량"
+            "cruise" -> get("cruiseControlState")?.toString()?.let(::readableState) ?: "수신된 크루즈 상태"
+            "mode" -> get("drivingMode")?.toString()?.let(::readableState) ?: "수신된 주행 모드"
+            "energy" -> number("energyPercent", "잔량 %.0f%%") ?: "수신된 에너지 잔량"
+            else -> "수신 데이터"
+        }
     }
 
     /** Full-screen report, distinct from Home / live vehicle data cards. */
@@ -786,11 +955,24 @@ class MainActivity : Activity() {
                 Color.rgb(231, 243, 255), violet))
         })
         page.addView(gap(11))
-        page.addView(button("차량 이름 지정 / 수정", false) { showVehicleNameDialog() })
+        page.addView(row().apply {
+            background = shape(white, 20, line)
+            setPadding(d(18), d(14), d(18), d(14))
+            addView(column().apply {
+                addView(label("차량 프로필", 12f, secondary, true))
+                addView(gap(4))
+                addView(label(storedVehicleName(), 22f, ink, true))
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(tag("이름 변경  ›"))
+            isClickable = true
+            isFocusable = true
+            contentDescription = "차량 프로필, " + storedVehicleName() + ", 이름 변경"
+            setOnClickListener { showVehicleNameDialog() }
+        })
         page.addView(gap(18))
 
         val personality = card()
-        personality.addView(label("01   차량의 성격 유형", 14f, teal, true))
+        personality.addView(label("01   " + storedVehicleName() + "의 성격 유형", 22f, ink, true))
         personality.addView(gap(13))
         personality.addView(label("MBTI", 13f, secondary))
         personality.addView(label(state.core.mbti, 52f, ink, true))
@@ -801,7 +983,7 @@ class MainActivity : Activity() {
             personality.addView(label("초기 성향 요약 · 경계에 있는 축은 경험이 쌓이며 달라져요", 12f, secondary))
         personality.addView(gap(14))
         val axisNames = listOf("외향 (E)", "새로움 (N)", "분석 (T)", "계획 (J)")
-        gaugeGrid(personality, axisNames.mapIndexed { index, name -> name to state.core.axes[index] })
+        gaugeGrid(personality, axisNames.mapIndexed { index, name -> name to state.core.axes[index] }, explain = true)
         personality.addView(label("성격 입력 반영 범위 " + percent(state.core.confidence),
             13f, violet, true))
         val scoring = character?.optJSONObject("scoring")
@@ -912,7 +1094,7 @@ class MainActivity : Activity() {
             12f, secondary
         ))
         radarCard.addView(gap(12))
-        gaugeGrid(radarCard, traitNames.mapIndexed { index, name -> name to traits[index] })
+        gaugeGrid(radarCard, traitNames.mapIndexed { index, name -> name to traits[index] }, explain = true)
         radarCard.addView(label(
             "다변량 가중합으로 계산한 16개 성향을 위 차트의 7개 항목으로 요약해요. " +
                 "현재 SOC·실내 온도·경고는 기분과 상황 반응에 반영돼요.", 13f, violet))
@@ -927,7 +1109,7 @@ class MainActivity : Activity() {
             radarCard.addView(gap(12))
             radarCard.addView(label("채팅에 반영되는 16개 성향", 15f, teal, true))
             radarCard.addView(gap(12))
-            gaugeGrid(radarCard, dimensionNames.map { (key, name) -> name to dimensions.optDouble(key, .5) }, teal)
+            gaugeGrid(radarCard, dimensionNames.map { (key, name) -> name to dimensions.optDouble(key, .5) }, teal, explain = true)
         }
         page.addView(radarCard)
         page.addView(gap(15))
@@ -2028,7 +2210,7 @@ class MainActivity : Activity() {
         messages.add("나" to message)
         val replyIndex = messages.size
         val text = when {
-            canUseGpt -> "GPT가 답변을 만들고 있어요…"
+            canUseGpt -> pendingReplyText()
             id != null && state != null && token.isBlank() ->
                 "GPT 대화를 사용하려면 먼저 회원가입 또는 로그인을 해 줘. " +
                 "위의 ‘로그인 / 회원가입’ 버튼을 누르면 돼.\n\n" +

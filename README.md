@@ -1,6 +1,85 @@
 # VPE Hyundai · Vehicle Persona Engine
 
-**Latest: v1.2.0 — observed vehicle usage pattern learning + reliable proactive event retries + GPT style contrast tests**
+## 최신 버전 · v1.5.7
+
+차량 데이터를 캐릭터 성향으로 변환하고, 차량 이름과 성격을 반영해 대화하는 Android 앱입니다.
+
+- 성향 카드 선택 → 실제 계산에 사용된 입력값과 항목별 기여도(%p)를 표시합니다. 서버가 제공한 계산 결과를 사용하며, 미수신 항목은 수신값으로 표시하지 않습니다.
+- MBTI 4개 축, 7가지 성향, 16개 세부 성향의 분석 근거를 확인할 수 있습니다.
+- 차량 프로필에서 이름을 설정합니다. 미설정 시 **내 차**를 사용하고, 리포트 제목과 답변 대기 문구에도 적용합니다.
+- 실시간 갱신 시 스크롤 위치를 유지하고, 드래그 중 화면 교체를 지연합니다.
+- 성격 산출 방식과 서버 API는 그대로 사용합니다. 이번 배포는 Android UI 변경입니다.
+
+## 담당자용 개발·시연 환경
+
+| 항목 | 프로젝트 설정 / 재현 기준 |
+| --- | --- |
+| 개발 호스트 | Windows + Android Studio, JDK 17 |
+| Android 앱 | Kotlin 2.0.21 / Android Gradle Plugin 8.7.3 |
+| Gradle | 8.9 (GitHub Actions 빌드 기준) |
+| 앱 SDK | compile / target 35, min 28 (Android 9) |
+| 차량 SDK | `ai.pleos.playground:Vehicle:2.3.2` |
+| 차량 시연 시스템 이미지 | **Pleos Connect v2.1.0 APIs / Android 14 / API 34 / x86_64 / Automotive** |
+| AVD 생성 기준 | `automotive_1024p_landscape`, RAM 4096 MB, 가로 방향, Cold Boot |
+| 재현용 화면 기준 | **1920 × 1080 px / 160 dpi** — 프로젝트에서 지정하는 시연 설정. 아래 명령으로 적용 |
+| Android Emulator 실행 파일 버전 | 설치된 버전은 `capture-demo-environment.ps1`이 `emulator -version`으로 기록 |
+| 사용자 PC의 실제 해상도·밀도 | 스크린샷 크기로 추정하지 않음. 같은 스크립트가 `wm size`, `wm density`의 물리값·override 값을 기록 |
+| CI UI 검증 환경 | 일반 Android 14 / API 34 / Google APIs / x86_64 / Pixel 6. 차량 SDK 시연용 AVD와 별도 |
+| 백엔드 | Node.js 20 이상 / Render / PostgreSQL. 앱 기본 주소 `https://vpe-hyundai.onrender.com` |
+| 앱 식별자 | `com.vpe.hyundai` / `com.vpe.hyundai/.MainActivity` |
+
+### Pleos AVD 준비와 화면 재현
+
+1. Android Studio → SDK Manager → SDK Update Sites에 공식 이미지 저장소를 추가합니다: `https://nexus-playground.pleos.ai/repository/raw-releases/connect-avd/2.x/crp-sys-img.xml`.
+2. **Pleos Connect v2.1.0 APIs / API 34 / x86_64** 시스템 이미지를 설치합니다. Automotive AVD를 만들고 가로 화면·RAM 4 GB를 선택합니다. 저장소 자동화에서 사용하는 장치 프로필은 `automotive_1024p_landscape`이며, AVD 이름은 자유롭게 정할 수 있습니다.
+3. **Cold Boot**로 시작한 뒤 차량 화면이 완전히 열릴 때까지 기다립니다. 일반 Google APIs 이미지에는 Pleos Vehicle Service가 없습니다.
+4. 프로젝트 루트 PowerShell에서 아래 명령을 실행하면 시연 화면 규격을 적용하고, 실제 Emulator 버전·AVD 이름·OS·ABI·화면 크기·밀도·앱 버전을 파일로 기록합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/capture-demo-environment.ps1 -ApplyDemoDisplay
+```
+
+결과 파일: `pleos-evidence/environment.txt`. 기존 환경만 기록하려면 `-ApplyDemoDisplay`를 빼고 실행합니다. 화면 override를 되돌리려면 다음을 실행합니다.
+
+```powershell
+$adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
+& $adb -e shell wm size reset
+& $adb -e shell wm density reset
+```
+
+### APK 설치와 담당자 시연 순서
+
+1. **Actions → Build VPE Android APK**의 최신 성공 실행에서 **VPE-Hyundai-debug-apk**를 다운로드하고 압축을 풉니다.
+2. Pleos 에뮬레이터 하나를 켠 상태에서 설치·실행합니다. `-r`은 기존 로그인과 차량 이름을 유지합니다.
+
+```powershell
+$adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
+& $adb -e install -r .\app-debug.apk
+& $adb -e shell am start -W -n com.vpe.hyundai/.MainActivity
+```
+
+3. 앱에서 회원가입/로그인 → **Pleos 차량 연결하기** → 리포트 진입을 진행합니다. **진단** 탭에서 실제 SDK 수신 상태를 확인할 수 있습니다.
+4. **차량 프로필 → 이름 변경**에서 이름을 저장합니다. 상단 제목에 이름이 반영되는지 확인합니다.
+5. 리포트에서 **호기심** 등 성향 카드를 선택합니다. 수신된 입력값, 점수를 높이거나 낮추는 기여도, 기본 성향을 확인합니다. 미수신 항목은 근거 목록에서 제외됩니다.
+6. 대화 탭에서 메시지를 보내고 **‘이름이/가 답변을 생각하고 있어요…’** 문구와 응답을 확인합니다. 이름 미설정 시 **‘내 차가 답변을 생각하고 있어요…’**로 표시됩니다.
+7. SDK 값 변경 콘솔: `adb -e forward tcp:8088 tcp:8088` 실행 후 `http://127.0.0.1:8088/`에 접속합니다. 에너지·온도·동승자·크루즈 등 지원되는 항목을 변경한 뒤 앱에서 리포트와 분석 근거를 확인합니다.
+
+일반 Android 기기에서는 홈의 시연 모드를 사용할 수 있습니다. 이는 고정 시연 데이터이며 실제 SDK 수신 시연과 구분됩니다.
+
+### 빌드 및 검증
+
+```text
+gradle --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest
+```
+
+`Build VPE Android APK`는 JVM 회귀 테스트와 APK 빌드를 실행합니다. `VPE Android UI Smoke`는 에뮬레이터에서 스크롤 유지, 드래그 중 갱신, 탭 위치 유지, 성향 카드의 실제 기여도 표시, 이름 저장·기본 이름·답변 대기 문구를 검사하고 화면을 보관합니다. UI 테스트의 계산 데이터는 production scoring/report 코드로 생성한 테스트 전용 fixture이며 실제 차량 이력에 저장하지 않습니다.
+
+## 이전 버전 기록
+
+아래 항목은 각 버전 출시 시점의 기능·진행 상태를 보존한 기록입니다. 현재 설치와 시연은 위 v1.5.7 절차를 기준으로 합니다.
+
+
+**Historical: v1.2.0 — observed vehicle usage pattern learning + reliable proactive event retries + GPT style contrast tests**
 
 - Five additional typed, read-only Pleos getters for range, battery capacity, cruise state/target, and HVAC fan speed are logged and exposed as GPT context, pending real AVD reception; Seat/Light are excluded until their CAR_SEATS/CAR_LIGHTS permissions are approved; see [data matrix](docs/SDK-DATA-MATRIX.md).
 - Real SDK readings merge automatically; event-based speech covers low SOC, thermal discomfort, charging switch, and washer warning, with debounce and priority.

@@ -10,8 +10,8 @@ android {
         minSdk = 28
         targetSdk = 35
         testInstrumentationRunner = "com.vpe.hyundai.UiRegressionInstrumentation"
-        versionCode = 32
-        versionName = "1.5.6"
+        versionCode = 33
+        versionName = "1.5.7"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
