@@ -574,13 +574,13 @@ class MainActivity : Activity() {
         observed("충전 스위치", latest.charging?.let { if (it) "ON" else "OFF" },
             "단기 안도감·충전 알림 (실제 충전 전류 미확인)")
         observed("주행 모드", latest.drivingMode,
-            "초기 주행 스타일 + 누적 모드 다양성 → 16개 성향")
+            "현재 주행 맥락을 다른 입력과 가중합 + 누적 사용 패턴")
         observed("크루즈 상태", latest.cruiseControlState,
-            "초기 규칙성 + 누적 크루즈 사용 패턴")
+            "현재 정속 주행 맥락을 다른 입력과 가중합")
         observed("동승자 감지", latest.passenger?.toString(),
-            "초기 동행 성향 + 누적 동승 패턴")
+            "현재 동승 맥락을 다른 입력과 가중합 · 단독으로 E/I 결정하지 않음")
         observed("공조 자동 설정", latest.hvacAuto?.toString(),
-            "초기 규칙성 + 누적 실내 설정 패턴")
+            "현재 실내 설정 맥락 + 누적 설정 패턴")
         observed("크루즈 목표속도", latest.cruiseTargetSpeedRaw,
             "GPT 대화 맥락 · 실제 주행속도 아님")
         observed("공조 팬속도", latest.fanSpeedLevel?.toString(),
@@ -674,7 +674,7 @@ class MainActivity : Activity() {
         page.addView(row().apply {
             addView(tag(if (cachedReport) "저장된 분석" else if (demo) "시연 데이터" else "실제 SDK 관측 기반",
                 Color.rgb(231, 243, 255), violet))
-            addView(label("  ·  " + (character?.optString("algorithm") ?: "로컬 성격"), 12f, secondary))
+            addView(label("  ·  앱 1.5.4 · " + (character?.optString("algorithm") ?: "서버 성격 연결 대기"), 12f, secondary))
         })
         page.addView(gap(11))
         page.addView(button("차량 이름 지정 / 수정", false) { showVehicleNameDialog() })
@@ -686,7 +686,7 @@ class MainActivity : Activity() {
         personality.addView(label("MBTI", 13f, secondary))
         personality.addView(label(state.core.mbti, 52f, ink, true))
         personality.addView(label(if (character?.optString("formation") == "sdk_initial")
-            "SDK 차량 특성·설정으로 생성한 초기 인격 · 운행 이력과 대화로 성장해요"
+            "다변량 센서 가중합으로 계산한 현재 성향 · 운행 이력과 대화로 성장해요"
             else "차량의 초기 인격 + 누적 운행·대화 경험", 13f, secondary))
         if (character?.optBoolean("mbtiProvisional") == true)
             personality.addView(label("초기 성향 요약 · 경계에 있는 축은 경험이 쌓이며 달라져요", 12f, secondary))
@@ -697,6 +697,26 @@ class MainActivity : Activity() {
         }
         personality.addView(label("성격 입력 반영 범위 " + percent(state.core.confidence),
             13f, violet, true))
+        val scoring = character?.optJSONObject("scoring")
+        if (scoring != null) {
+            val groups = scoring.optJSONArray("groups")?.length() ?: 0
+            personality.addView(label(if (scoring.optBoolean("ready"))
+                "다변량 가중합 · " + groups + "개 데이터군 반영"
+                else "복합 데이터 수신 대기 · " + groups + "/4개 데이터군", 13f, teal, true))
+            val normalized = scoring.optJSONObject("normalized")
+            val inputNames = listOf("passengers" to "동승", "speed" to "평균 속도",
+                "acceleration" to "급가속", "braking" to "급감속", "time" to "시간대",
+                "comfort" to "실내 쾌적", "media" to "미디어 음량", "cruise" to "크루즈",
+                "mode" to "주행 모드", "energy" to "에너지")
+            if (normalized != null) {
+                val applied = inputNames.filter { !normalized.isNull(it.first) }
+                    .joinToString(" · ") { it.second }
+                val missing = inputNames.filter { normalized.isNull(it.first) }
+                    .joinToString(" · ") { it.second }
+                personality.addView(label("반영 중: " + applied, 12f, secondary))
+                if (missing.isNotBlank()) personality.addView(label("미수신: " + missing, 12f, secondary))
+            }
+        }
         personality.addView(gap(10))
         val axes = state.core.axes
         val narrative = listOf(
@@ -779,7 +799,7 @@ class MainActivity : Activity() {
             radarCard.addView(gap(6))
         }
         radarCard.addView(label(
-            "SDK 초기 인격을 16개 성향으로 계산하며, 위 차트는 7개 항목으로 요약해요. " +
+            "다변량 가중합으로 계산한 16개 성향을 위 차트의 7개 항목으로 요약해요. " +
                 "현재 SOC·실내 온도·경고는 기분과 상황 반응에 반영돼요.", 13f, violet))
         val dimensions = character?.optJSONObject("traits")
         val dimensionNames = listOf("initiative" to "적극성", "expressiveness" to "표현력",
