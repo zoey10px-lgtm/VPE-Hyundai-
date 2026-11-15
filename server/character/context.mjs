@@ -63,7 +63,7 @@ export function report(profile){
  const z=effectiveTraits(profile),summary=mbti(z),initialized=profile.bootstrap?.contextScore?.ready===true;
  const keywords=NAMES.filter(k=>Math.abs(z[k]-.5)>.025).sort((a,b)=>Math.abs(z[b]-.5)-Math.abs(z[a]-.5)).slice(0,3).map(k=>traitKeywords[k][z[k]>=.5?1:0]);
  const provisional=initialized&&summary.label.includes('X');
- const label=summary.label;
+ const label=initialized?summary.axes.map((v,i)=>v>=.5?['E','N','T','J'][i]:['I','S','F','P'][i]).join(''):summary.label;
  return {version:profile.version,algorithm:profile.algorithm,traits:z,values:values(z),confidence:Object.fromEntries(NAMES.map(k=>[k,Math.max(profile.confidence[k]||0,profile.bootstrap?.contextConfidence?.[k]||0)])),mbti:label,mbtiProvisional:provisional,axes:summary.axes,keywords,
  legacyTraits:[.5*z.initiative+.5*z.expressiveness,z.curiosity,z.warmth,z.autonomy,z.planning,z.playfulness,z.expressiveness],formation:profile.formation,experience:profile.experience,
  initialEvidence:profile.bootstrap?.evidence||[],initialFactors:profile.bootstrap?.factors||{},inputRoles:INPUT_ROLES,scoring:profile.bootstrap?.contextScore||null,coreTraits:profile.traits,effectiveScores:{E_score:summary.axes[0]*100,I_score:(1-summary.axes[0])*100,N_score:summary.axes[1]*100,S_score:(1-summary.axes[1])*100,T_score:summary.axes[2]*100,F_score:(1-summary.axes[2])*100,J_score:summary.axes[3]*100,P_score:(1-summary.axes[3])*100},

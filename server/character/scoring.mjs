@@ -98,7 +98,7 @@ export function scorePersona(input={}, options={}) {
  const labels=axes.map((value,i)=>{
   if(!ready)return 'X';
   const prior=options.previousMbti?.[i];
-  if(Math.abs(value-.5)<.04)return prior&&prior!=='X'?prior:'X';
+  if(Math.abs(value-.5)<.04&&prior&&prior!=='X')return prior;
   return value>=.5?positive[i]:negative[i];
  });
  return {

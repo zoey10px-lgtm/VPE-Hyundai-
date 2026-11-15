@@ -69,3 +69,8 @@ test('odometer time series derives speed; reset/teleport is never treated as acc
  s=ingest(s,[{id:'teleport',signal:'odometerKm',value:1000000,at:now+50000,source:'emulator'}],now+50000).state;
  assert.equal(s.observed.averageSpeedKmh,undefined);
 });
+
+test('ready report keeps four-letter output while retaining numeric boundary scores',()=>{
+ const r=report(observe(base).profile);assert.equal(r.scoring.ready,true);
+ assert.match(r.mbti,/^[EINSFTJP]{4}$/);assert.equal(r.mbti,r.axes.map((v,i)=>v>=.5?['E','N','T','J'][i]:['I','S','F','P'][i]).join(''));
+});

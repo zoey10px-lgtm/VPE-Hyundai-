@@ -39,3 +39,9 @@ test('contributions reproduce every trait score and preserve deterministic outpu
  }
  assert.ok(Math.abs(r.scores.E_score+r.scores.I_score-100)<1e-12);
 });
+
+test('sufficient multivariate inputs use the 50-point threshold for an initial type',()=>{
+ const r=scorePersona({passenger:true,energyPercent:100,cabinTemperatureC:19.1,hourLocal:12,weekend:true,cruiseControlState:'ENABLED'});
+ assert.equal(r.ready,true);assert.match(r.mbti,/^[EINSFTJP]{4}$/);
+ assert.equal(r.mbti,r.axes.map((v,i)=>v>=.5?['E','N','T','J'][i]:['I','S','F','P'][i]).join(''));
+});
