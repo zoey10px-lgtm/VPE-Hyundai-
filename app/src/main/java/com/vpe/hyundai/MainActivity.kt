@@ -536,7 +536,7 @@ class MainActivity : Activity() {
         mood.addView(gap(8))
         mood.addView(dataRow("안도감", percent(state.affect.relief)))
         mood.addView(gap(8))
-        mood.addView(label("배터리·온도는 감정만 즉시 변화시켜. MBTI는 장기 운행 패턴이 쌓일 때 학습해.",
+        mood.addView(label("차량 특성·설정으로 초기 인격을 만들고, 운행 경험으로 성장해. 배터리·온도는 현재 기분에 반영돼.",
             13f, secondary))
         lastLiveChange?.let {
             mood.addView(gap(9))
@@ -560,9 +560,9 @@ class MainActivity : Activity() {
         }
         observed("누적 주행거리",
             latest.odometerKm?.let { String.format(Locale.KOREA, "%,.0fkm", it) },
-            "장기 활동성·자신감 (100만 km까지 로그 정규화)")
+            "초기 경험 기질 + 누적 운행 패턴")
         observed("VIN 기반 연식", latest.modelYear?.let { "${it}년 추정" },
-            "장기 자신감·신중함 (VIN 모델연도 추정인 경우만)")
+            "초기 경험 기질 (VIN 모델연도 해석값)")
         observed("배터리 SOC", latest.evBatteryLevel?.let { "${it.toInt()}%" },
             "단기 배고픔·긴장·배터리 경고")
         observed("실내 / 목표 온도",
@@ -570,24 +570,17 @@ class MainActivity : Activity() {
                 latest.targetTemperatureC?.let { target ->
                     String.format(Locale.KOREA, "%.1f / %.1f°C", cabin, target)
                 }
-            }, "단기 추위·더위·자동 발화")
+            } ?: latest.cabinTemperatureC?.let { "${it}°C / 목표 미수신" }, "현재 추위·더위·상황 반응")
         observed("충전 스위치", latest.charging?.let { if (it) "ON" else "OFF" },
             "단기 안도감·충전 알림 (실제 충전 전류 미확인)")
-        val patterns = identity?.vehicleKey?.let { patternTracker.summary(it) }
         observed("주행 모드", latest.drivingMode,
-            "GPT 맥락 + 관측 모드 다양성 누적 → N/S 보정")
+            "초기 주행 스타일 + 누적 모드 다양성 → 16개 성향")
         observed("크루즈 상태", latest.cruiseControlState,
-            "GPT 맥락 + 크루즈 사용 비율 누적 → J/P 보정")
-        observed("모드 다양성 누적", patterns?.modeVarietyRatio?.let { percent(it) },
-            "N/S 장기 성격 · 모드 관측 4회 이상부터 반영")
-        observed("크루즈 사용률 누적", patterns?.cruiseUseRatio?.let { percent(it) },
-            "J/P 장기 성격 · 크루즈 관측 4회 이상부터 반영")
-        observed("VPE 대화 상호작용", patterns?.interactions?.toString()?.plus("회"),
-            "E/I 장기 성격 · 대화 3회 이상부터 반영")
-        patterns?.let {
-            sources.addView(label(it.evidenceSummary, 12f, violet, true))
-            sources.addView(gap(7))
-        }
+            "초기 규칙성 + 누적 크루즈 사용 패턴")
+        observed("동승자 감지", latest.passenger?.toString(),
+            "초기 동행 성향 + 누적 동승 패턴")
+        observed("공조 자동 설정", latest.hvacAuto?.toString(),
+            "초기 규칙성 + 누적 실내 설정 패턴")
         observed("크루즈 목표속도", latest.cruiseTargetSpeedRaw,
             "GPT 대화 맥락 · 실제 주행속도 아님")
         observed("공조 팬속도", latest.fanSpeedLevel?.toString(),
@@ -601,9 +594,9 @@ class MainActivity : Activity() {
                 (latest.tripDistanceRaw ?: "미수신") + " / " + (latest.tripTimeRaw ?: "미수신"),
             "운행 이력 후보 · 원값 단위 검증 후 활용")
         sources.addView(label(
-            "MBTI는 지속적인 운전 모드 다양성(N), 크루즈 사용(J), VPE 대화(E) " +
-                "관측이 쌓여 서서히 바뀔 수 있어. SOC·온도는 단기 감정만 바꿔. " +
-                "운행 패턴 가중치는 공개된 엔지니어링 추정치이며 심리검사 결과가 아니야.",
+            "처음부터 SDK 차량 특성·설정을 16개 성향으로 반영해. " +
+                "누적 운행·대화 경험으로 성격이 성장하고, 현재 상태로 기분이 달라져. " +
+                "차량을 캐릭터로 표현하는 창작 규칙이야.",
             13f, violet))
         page.addView(sources)
     }
@@ -1410,6 +1403,7 @@ class MainActivity : Activity() {
     private val chatIo = java.util.concurrent.Executors.newSingleThreadExecutor()
     private val observations by lazy { CharacterObservations(this) }
     private var observationFlushScheduled = false
+    private var observationSyncInFlight = false
     private var serverCharacter: JSONObject? = null
     private var serverCharacterScope = ""
 
@@ -1442,7 +1436,7 @@ class MainActivity : Activity() {
         observations.append(scope, observedPatch, if (android.os.Build.FINGERPRINT.contains("generic") || android.os.Build.MODEL.contains("Emulator")) "emulator" else "real")
         // Coalesce the SDK callback burst, then drain every queued batch. The old
         // 15-second gate stranded the last fields and allowed stale chat profiles.
-        if (observationFlushScheduled) return
+        if (observationFlushScheduled || observationSyncInFlight) return
         observationFlushScheduled = true
         mainHandler.postDelayed({
             observationFlushScheduled = false
@@ -1451,8 +1445,11 @@ class MainActivity : Activity() {
     }
 
     private fun flushCharacterObservations(scope: String, key: String) {
+        if (scope != activeChatScope || observationSyncInFlight || isFinishing || isDestroyed) return
+        observationSyncInFlight = true
         val token = sessionToken(); val endpoint = serverUrl()
         characterIo.execute {
+            var failed = false
             try {
                 repeat(20) {
                     if (scope != activeChatScope) return@execute
@@ -1463,11 +1460,21 @@ class MainActivity : Activity() {
                     runOnUiThread { acceptCharacter(response.optJSONObject("character"), scope) }
                 }
             } catch (error: Exception) {
+                failed = true
                 runOnUiThread {
                     diagnosticLogs.add("CHARACTER_SYNC: " + error.message?.take(100))
                     if (diagnosticLogs.size > 80) diagnosticLogs.removeAt(0)
-                    if (scope == activeChatScope && !isFinishing && !isDestroyed) {
-                        mainHandler.postDelayed({ flushCharacterObservations(scope, key) }, 5_000L)
+                }
+            } finally {
+                runOnUiThread {
+                    observationSyncInFlight = false
+                    if (scope == activeChatScope && !isFinishing && !isDestroyed &&
+                        observations.batch(scope).length() > 0 && !observationFlushScheduled) {
+                        observationFlushScheduled = true
+                        mainHandler.postDelayed({
+                            observationFlushScheduled = false
+                            flushCharacterObservations(scope, key)
+                        }, if (failed) 5_000L else 500L)
                     }
                 }
             }
@@ -2052,7 +2059,7 @@ class MainActivity : Activity() {
         hpe?.let { state ->
             page.addView(gap(14))
             val evidence = card()
-            evidence.addView(label("HPE 계산 근거 · SDK / 초기 시드 구분", 15f, ink, true))
+            evidence.addView(label("캐릭터 계산 근거 · SDK 초기 인격 / 누적 경험", 15f, ink, true))
             evidence.addView(gap(9))
             evidence.addView(label(state.sources.joinToString("\n"), 12f, secondary))
             page.addView(evidence)
