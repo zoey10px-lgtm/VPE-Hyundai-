@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import {createRateLimiter} from "./rate-limit.mjs";
 import { timingSafeEqual } from "node:crypto";
 import { databaseConfigured } from "./db.mjs";
 import { handleV2 } from "./account-api.mjs";
@@ -14,7 +15,7 @@ const REALTIME_MODEL = process.env.VPE_REALTIME_MODEL || "gpt-realtime-2.1-mini"
 const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
 const LEGACY_APP_TOKEN = process.env.VPE_ACCESS_TOKEN || "";
 const MAX_BODY = 262_144;
-const attempts = new Map();
+const rateLimited = createRateLimiter();
 
 function respond(res, status, payload) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
@@ -25,18 +26,6 @@ function legacyAuthorized(header) {
   const a = Buffer.from(header.slice(7));
   const b = Buffer.from(LEGACY_APP_TOKEN);
   return a.length === b.length && timingSafeEqual(a, b);
-}
-function rateLimited(ip, limit) {
-  const now = Date.now();
-  const previous = attempts.get(ip) || [];
-  const recent = previous.filter(t => now - t < 60_000);
-  recent.push(now);
-  attempts.set(ip, recent);
-  if (attempts.size > 1000) {
-    for (const [key, value] of attempts)
-      if (!value.some(t => now - t < 60_000)) attempts.delete(key);
-  }
-  return recent.length > limit;
 }
 async function readBody(req) {
   let size=0;
@@ -191,7 +180,7 @@ const httpServer=createServer(async(req,res)=>{
   if(!path.startsWith("/api/")) return respond(res,404,{error:"NOT_FOUND"});
   const isAuth=path==="/api/auth/login" || path==="/api/auth/register";
   const ip=req.socket.remoteAddress||"unknown";
-  if(rateLimited(ip,isAuth?8:240)) return respond(res,429,{error:"RATE_LIMITED"});
+  if(rateLimited(ip,isAuth?8:240,isAuth?"auth":"api")) return respond(res,429,{error:"RATE_LIMITED"});
   try{
     const body=req.method==="POST"?await readBody(req):{};
     if(path.startsWith('/api/v3/')) return await handleCharacter(req,res,url,body,callModel,createRealtimeSecret);
