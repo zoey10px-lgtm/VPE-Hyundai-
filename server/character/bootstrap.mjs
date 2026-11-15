@@ -16,9 +16,20 @@ export const INPUT_ROLES={sdkDiagnostic:'sdk_status_only',
  ambientBrightness:'current_ambience',ambientColor:'current_ambience',tripMinutes:'current_fatigue'
 };
 
+// Change-only subscriptions retain their last reported configuration while
+// real telemetry from that vehicle remains active. Original timestamps stay
+// attached to evidence; loss of the telemetry heartbeat expires the lease.
+export const LEASE_SIGNALS=new Set(['cruiseControlState','drivingMode','passenger','parked','hvacAuto','targetCabinC','hvacOn','charging']);
+export function observedValue(observed,key,now=Date.now(),maxAge=30000){
+ const entry=observed[key];if(!entry)return null;
+ const latest=Math.max(0,...Object.entries(observed).filter(([k,e])=>k!=='sdkDiagnostic'&&finite(e.at)).map(([,e])=>e.at));
+ const leased=LEASE_SIGNALS.has(key)&&now-latest<=30000;
+ return now-entry.at<=maxAge||leased?entry.value:null;
+}
+
 export function bootstrapFromObserved(observed={},now=Date.now()) {
  const get=k=>observed[k]?.value;
- const current=k=>observed[k]&&now-observed[k].at<=30000?get(k):null;
+ const current=k=>observedValue(observed,k,now);
  const local=new Date(now+9*3600000);
  const input={source:'sdk_observations',passenger:current('passenger'),passengerCount:current('passengerCount'),
   averageSpeedKmh:current('averageSpeedKmh'),harshAccelPer100Km:current('harshAccelPer100Km'),
@@ -40,8 +51,8 @@ export function bootstrapFromObserved(observed={},now=Date.now()) {
  const confidence=Object.fromEntries(TRAIT_NAMES.map(k=>[k,0]));
  confidence.autonomy=confidence.recovery=experience.length/2;
  const evidence=Object.entries(observed).filter(([k,e])=>e?.value!==null&&e?.value!==undefined&&
-  (['odometerKm','modelYear'].includes(k)||now-e.at<=30000))
-  .map(([signal,e])=>({signal,value:e.value,at:e.at,source:e.source,role:INPUT_ROLES[signal]||'context'}));
+  (['odometerKm','modelYear'].includes(k)||observedValue(observed,k,now)!==null))
+  .map(([signal,e])=>({signal,value:e.value,at:e.at,source:e.source,heldLastValue:LEASE_SIGNALS.has(signal)&&now-e.at>30000,role:INPUT_ROLES[signal]||'context'}));
  return {traits,confidence,factors:{vehicleExperience:seasoning,normalized:contextScore.normalized},evidence,
   available:contextScore.ready,contextScore,contextTraits:contextScore.traits,contextConfidence:contextScore.confidence};
 }

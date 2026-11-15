@@ -28,6 +28,8 @@ export async function observations(userId,vehicleId,events,now=Date.now()){
   state.sdkDiagnostics??={};
   for(const e of unique.filter(e=>e.signal==='sdkDiagnostic'&&typeof e.value==='string')){
    const category=e.value.split(':')[0],previous=state.sdkDiagnostics[category];
+   const failedSignal={CRUISE_LISTENER_ERROR:'cruiseControlState',DRIVE_MODE_LISTENER_ERROR:'drivingMode',PASSENGER_LISTENER_ERROR:'passenger'}[category];
+   if(failedSignal)delete state.observed[failedSignal];
    if(previous?.message!==e.value)console.info('VPE_SDK_DIAGNOSTIC '+e.value);
    state.sdkDiagnostics[category]={message:e.value,at:e.at,source:e.source};
   }

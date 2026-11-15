@@ -1,5 +1,5 @@
 import {clamp,finite,hash} from './engine.mjs';
-import {cruiseActive} from './bootstrap.mjs';
+import {cruiseActive,observedValue} from './bootstrap.mjs';
 const DAY=86400000;
 const median=a=>{a=[...a].sort((a,b)=>a-b);return a.length?(a[Math.floor((a.length-1)/2)]+a[Math.ceil((a.length-1)/2)])/2:null;};
 const quant=(a,p)=>{a=[...a].sort((a,b)=>a-b);return a.length?a[Math.floor((a.length-1)*p)]:null;};
@@ -39,7 +39,7 @@ export function normalizeEvents(events,now=Date.now()){
   if(!bounds&&!['parked','hvacAuto','passenger','safetyWarning','hvacOn','charging','washerFluidWarning'].includes(e.signal)&&(typeof e.value!=='string'||e.value.length>100))throw new Error('INVALID_SIGNAL_VALUE');
   return {id:e.id,signal:e.signal,value:e.value,at:e.at,source:e.source};});
 }
-export function freshState(observed,now=Date.now()){return Object.fromEntries(Object.entries(observed||{}).map(([k,e])=>[k,now-e.at<=(SIGNALS[k]?.[2]||15000)?e.value:null]));}
+export function freshState(observed,now=Date.now()){return Object.fromEntries(Object.entries(observed||{}).map(([k,e])=>[k,observedValue(observed,k,now,SIGNALS[k]?.[2]||15000)]));}
 export function ingest(state,events,now=Date.now()){
  state=structuredClone(state);state.observed??={};state.seen??=[];state.trips??=[];state.places??=[];
  let closed=false;

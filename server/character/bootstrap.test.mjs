@@ -96,3 +96,14 @@ test('SDK diagnostics are accepted but never become sensor facts or personality 
  assert.equal(report(state.profile).initialEvidence.some(e=>e.signal==='sdkDiagnostic'),false);
  assert.equal(report(state.profile).scoring.normalized.cruise,0);
 });
+
+test('change-only cruise state remains valid under live telemetry and expires on disconnect',()=>{
+ const a=observe({...base,cruiseControlState:'ACTIVATED'});
+ const b=observe({odometerKm:0,energyPercent:80,actualCabinC:22},now+40000,a);
+ assert.equal(report(b.profile).scoring.normalized.cruise,100);
+ const evidence=report(b.profile).initialEvidence.find(e=>e.signal==='cruiseControlState');
+ assert.equal(evidence.value,'ACTIVATED');assert.equal(evidence.at,now);assert.equal(evidence.heldLastValue,true);
+ assert.equal(freshState(b.observed,now+40000).cruiseControlState,'ACTIVATED');
+ assert.equal(freshState(b.observed,now+71000).cruiseControlState,null);
+ assert.equal(bootstrapFromObserved(b.observed,now+71000).contextScore.normalized.cruise,null);
+});
