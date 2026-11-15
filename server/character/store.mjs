@@ -1,6 +1,6 @@
 import {database,inTransaction} from '../db.mjs';
-import {initialProfile,updateTraits,values,migrateProfile} from './engine.mjs';
-import {ingest,aggregate} from './features.mjs';
+import {initialProfile,updateTraits,values,migrateProfile,effectiveTraits,mbti,hash} from './engine.mjs';
+import {ingest,aggregate,freshState} from './features.mjs';
 import {bootstrapFromObserved} from './bootstrap.mjs';
 let boot;
 export async function schema(){
@@ -27,6 +27,16 @@ export async function observations(userId,vehicleId,events,now=Date.now()){
   const unique=[];for(const e of events){const r=await db.query('INSERT INTO vpe_character_events(vehicle_id,event_id,at) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING event_id',[vehicleId,e.id,new Date(e.at)]);if(r.rowCount)unique.push(e);}
   const changed=ingest(state,unique,now);Object.assign(state,changed.state);
   const snapshot=aggregate(state.trips,state.profile.feedback,now,state.refills||[]);snapshot.bootstrap=bootstrapFromObserved(state.observed,now);state.profile=updateTraits(state.profile,snapshot,now);state.profile.values=values(state.profile.traits);state.features=snapshot;
+  // Operational trace contains only scoring inputs and output axes. It omits
+  // credentials, account/vehicle identifiers, location and conversation text.
+  const live=freshState(state.observed,now);
+  const trace={algorithm:state.profile.algorithm,inputs:Object.fromEntries(
+   ['passenger','cruiseControlState','odometerKm','energyPercent','actualCabinC','targetCabinC','averageSpeedKmh','drivingMode'].map(k=>[k,live[k]??null])),
+   groups:state.profile.bootstrap?.contextScore?.groups||[],ready:state.profile.bootstrap?.contextScore?.ready||false,
+   axes:mbti(effectiveTraits(state.profile)).axes.map(v=>Number((v*100).toFixed(2)))};
+  const signature=hash(trace);
+  if(signature!==state.diagnosticHash){state.diagnosticHash=signature;console.info('VPE_CHARACTER_TRACE '+JSON.stringify(trace));}
+
   await db.query("DELETE FROM vpe_character_events WHERE vehicle_id=$1 AND at<NOW()-INTERVAL '8 days'",[vehicleId]);
   return {profile:state.profile,state,accepted:unique.length,duplicate:events.length-unique.length};
  });
